@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /#/conta
+Disallow: /#/dev
+Disallow: /#/checkout
+Disallow: /#/pagamento
+Disallow: /#/onboarding
+Disallow: /#/dashboard
+Disallow: /#/login
+
+Sitemap: https://agenda-pro-eta.vercel.app/sitemap.xml

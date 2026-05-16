@@ -1,0 +1,1 @@
+export function Dashboard(){return <div className="legacy-dashboard-redirect"><div><strong>Dashboard legado desativado.</strong><span>Use #/conta/agenda/:slug/dashboard para acessar o painel real do cliente.</span></div></div>}
