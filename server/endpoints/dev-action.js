@@ -437,7 +437,18 @@ module.exports = async function handler(req, res) {
       afterData = Array.isArray(result) ? result[0] : result;
       auditDescription = 'Observação de suporte adicionada.';
     } else {
-      return res.status(400).json({ ok: false, message: 'Entidade ainda não possui ação automática segura.' });
+      await writeAudit({
+        admin,
+        action: action || 'unknown_action',
+        entity: entity || 'unknown_entity',
+        id,
+        severity: 'warning',
+        description: 'A Central Dev recebeu uma acao inexistente ou ainda nao automatizada.',
+        beforeData: null,
+        afterData: null,
+        metadata: { reason, payload, unknown_action: action, unknown_entity: entity },
+      });
+      return res.status(400).json({ ok: false, code: 'DEV_ACTION_NOT_SUPPORTED', message: 'Essa acao ainda nao possui automacao segura na Central Dev.' });
     }
 
     await writeAudit({
@@ -454,6 +465,6 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({ ok: true, action, entity, result, before: beforeData, after: afterData });
   } catch (error) {
-    return handleError(res, error, 'Erro ao executar ação administrativa.');
+    return handleError(res, error, 'Erro ao executar acao administrativa.', { exposeDetails: true });
   }
 };

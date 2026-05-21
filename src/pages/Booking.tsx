@@ -5,6 +5,7 @@ import { useApp } from '../contexts/AppContext';
 import { Appointment, Client } from '../types';
 import { currency, uid } from '../utils/format';
 import { DAY_KEYS, DAY_LABELS, buildDateOptions, dateKey, generateSlotsForDate, normalizeScheduleConfig, serviceDurationMinutes } from '../lib/availability';
+import { friendlyErrorMessage } from '../lib/errors';
 
 const demoExternalUrl = import.meta.env.VITE_AGENDAPRO_DEMO_URL || 'https://agendapro-demo.vercel.app/';
 
@@ -215,7 +216,7 @@ function RemoteAgendaBooking({ slug }: { slug: string }) {
         if (active) setAgenda(normalizePublicAgenda(data.agenda));
       })
       .catch(error => {
-        if (active) setError(error instanceof Error ? error.message : 'Agenda não encontrada.');
+        if (active) setError(friendlyErrorMessage(error, 'Agenda nao encontrada.', 'public'));
       })
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -327,7 +328,7 @@ Aguardo a confirmação.`;
       setForm({ name: '', phone: '', email: '', notes: '' });
       setTime('');
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Solicitação não enviada', message: error instanceof Error ? error.message : 'Tente novamente em instantes.' });
+      pushToast({ tone: 'warning', title: 'Solicitação não enviada', message: friendlyErrorMessage(error, 'Tente novamente em instantes.', 'public') });
     }
   };
 

@@ -103,6 +103,6 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({ ok: true, keys, masked: rows.map(row => row.key_prefix) });
   } catch (error) {
-    return handleError(res, error, 'Erro ao gerar key.');
+    return handleError(res, error, 'Erro ao gerar key.', { exposeDetails: true });
   }
 };

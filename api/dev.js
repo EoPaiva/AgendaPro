@@ -12,7 +12,9 @@ function getAction(req) {
 function notFound(res, action) {
   return res.status(404).json({
     ok: false,
-    message: `Ação de API não encontrada: ${action || 'sem action'}.`
+    code: 'ACTION_NOT_FOUND',
+    message: 'Acao da Central Dev nao encontrada.',
+    action: action || null
   });
 }
 

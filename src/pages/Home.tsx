@@ -7,6 +7,7 @@ import { Badge } from '../components/Badge';
 import { useApp } from '../contexts/AppContext';
 import { currency } from '../utils/format';
 import { DAY_KEYS, DAY_LABELS, buildDateOptions, dateKey, defaultScheduleConfig, generateSlotsForDate, normalizeBookingStatus, normalizeScheduleConfig, serviceDurationMinutes, type ScheduleConfig } from '../lib/availability';
+import { friendlyErrorMessage } from '../lib/errors';
 
 const fade = {
   initial: { opacity: 0, y: 18 },
@@ -1060,7 +1061,7 @@ function ContractPage() {
       pushToast({ tone: 'success', title: 'Briefing recebido', message: 'A solicitação apareceu no painel do desenvolvedor.' });
       setBriefing(current => ({ ...current, message: '' }));
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Briefing não enviado', message: error instanceof Error ? error.message : 'Verifique o Supabase e tente novamente.' });
+      pushToast({ tone: 'warning', title: 'Briefing não enviado', message: friendlyErrorMessage(error, 'Nao foi possivel enviar agora. Tente novamente em instantes.', 'public') });
     } finally {
       setSending(false);
     }
@@ -1124,7 +1125,7 @@ function AccountRegisterPage() {
       pushToast({ tone: 'success', title: 'Conta criada', message: 'Agora o pagamento e a agenda ficam vinculados a esta conta.' });
       window.location.hash = `#/checkout/${plan.id}`;
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Cadastro não concluído', message: error instanceof Error ? error.message : 'Verifique o Supabase e tente novamente.' });
+      pushToast({ tone: 'warning', title: 'Cadastro não concluído', message: friendlyErrorMessage(error, 'Nao foi possivel criar a conta agora. Tente novamente em instantes.', 'client') });
     } finally {
       setLoading(false);
     }
@@ -1171,7 +1172,7 @@ function AccountLoginPage() {
       pushToast({ tone: 'success', title: 'Login realizado', message: 'Abrindo central do cliente.' });
       window.location.hash = '#/conta/painel';
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Não foi possível entrar', message: error instanceof Error ? error.message : 'Confira e-mail e senha.' });
+      pushToast({ tone: 'warning', title: 'Não foi possível entrar', message: friendlyErrorMessage(error, 'Confira e-mail e senha.', 'client') });
     } finally {
       setLoading(false);
     }
@@ -1229,7 +1230,7 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
       }
       if (silent) pushToast({ tone: 'success', title: 'Dados sincronizados', message: 'Agendamentos atualizados com o Supabase.' });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Você não tem permissão para esta agenda.';
+      const message = friendlyErrorMessage(error, 'Voce nao tem permissao para esta agenda.', 'client');
       if (!ownsLocal || silent) pushToast({ tone: 'warning', title: 'Não foi possível carregar', message });
     } finally {
       if (!silent) setLoading(false);
@@ -1314,7 +1315,7 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
       setSelectedBooking((current: any | null) => current?.id === id ? { ...current, ...updated } : current);
       pushToast({ tone: 'success', title: 'Agendamento atualizado', message: `Status alterado para ${bookingStatusLabel(updated.status || status)}.` });
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Não foi possível atualizar', message: error instanceof Error ? error.message : 'Tente novamente.' });
+      pushToast({ tone: 'warning', title: 'Não foi possível atualizar', message: friendlyErrorMessage(error, 'Nao foi possivel atualizar agora. Tente novamente.', 'client') });
     } finally {
       setBookingActionLoading('');
     }
@@ -1353,7 +1354,7 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
       if (localAgenda?.slug === slug) saveStoredAgenda({ ...localAgenda, scheduleConfig: savedScheduleConfig, hours: { ...(localAgenda.hours || {}), interval: String(savedScheduleConfig.slotInterval) }, rules: { ...(localAgenda.rules || {}), cancellation: savedScheduleConfig.cancellationText || localAgenda.rules?.cancellation || '', minNotice: `${savedScheduleConfig.minAdvanceHours} horas` } });
       pushToast({ tone: 'success', title: 'Disponibilidade salva', message: 'A página pública já usa essas regras e continuará igual após atualizar a página.' });
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Não foi possível salvar', message: error instanceof Error ? error.message : 'Tente novamente.' });
+      pushToast({ tone: 'warning', title: 'Não foi possível salvar', message: friendlyErrorMessage(error, 'Nao foi possivel salvar agora. Tente novamente.', 'client') });
     }
   };
   const blockQuickTime = () => {
@@ -1395,7 +1396,7 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
       saveStoredAgenda(nextAgenda);
       pushToast({ tone: 'success', title: 'Operação salva', message: 'Serviços, profissionais e horários foram sincronizados com a agenda pública.' });
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Não foi possível salvar', message: error instanceof Error ? error.message : 'Tente novamente.' });
+      pushToast({ tone: 'warning', title: 'Não foi possível salvar', message: friendlyErrorMessage(error, 'Nao foi possivel salvar agora. Tente novamente.', 'client') });
     }
   };
   const serviceHealthAlerts = [
@@ -1540,7 +1541,7 @@ Qualquer dúvida, estamos à disposição.`;
         pushToast({ tone: 'success', title: 'E-mail processado', message: 'Mensagem enviada ou registrada com sucesso.' });
       }
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Falha no envio', message: error instanceof Error ? error.message : 'Tente novamente.' });
+      pushToast({ tone: 'warning', title: 'Falha no envio', message: friendlyErrorMessage(error, 'Nao foi possivel registrar a mensagem agora.', 'client') });
     }
   };
   const navItems: Array<[string, ComponentType<{ size?: number }>]> = [
@@ -2272,7 +2273,7 @@ function LicenseActivation({ account, onActivated }: { account: ClientAccount; o
       onActivated({ planId: data.planId || account.planId, planName: `${data.planName || account.planName} Trial`, expiresAt: data.expiresAt, licenseSource: 'key_promocional' });
       pushToast({ tone: 'success', title: 'Key ativada', message: 'Licença liberada. O botão Criar minha agenda está disponível.' });
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Erro ao ativar key', message: error instanceof Error ? error.message : 'Tente novamente.' });
+      pushToast({ tone: 'warning', title: 'Erro ao ativar key', message: friendlyErrorMessage(error, 'Nao foi possivel ativar a key agora.', 'client') });
     } finally {
       setLoading(false);
     }
@@ -2335,7 +2336,7 @@ function ClientSettings({ account, setAccount }: { account: ClientAccount; setAc
       setForm(next);
       pushToast({ tone: 'success', title: 'Configurações salvas', message: 'Os dados foram salvos no Supabase e não voltam ao atualizar a página.' });
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Não foi possível salvar', message: error instanceof Error ? error.message : 'Verifique sua sessão e tente novamente.' });
+      pushToast({ tone: 'warning', title: 'Não foi possível salvar', message: friendlyErrorMessage(error, 'Verifique sua sessao e tente novamente.', 'client') });
     } finally {
       setSaving(false);
     }
@@ -2404,7 +2405,7 @@ function AgendaBuilderPage() {
       if (!response.ok || !data?.ok) throw new Error(data?.message || raw || 'Não foi possível publicar a agenda.');
       resultSlug = data?.slug || published.slug;
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Agenda não publicada', message: error instanceof Error ? error.message : 'Faça login novamente e tente publicar.' });
+      pushToast({ tone: 'warning', title: 'Agenda não publicada', message: friendlyErrorMessage(error, 'Faca login novamente e tente publicar.', 'client') });
       setLoading(false);
       return;
     }
@@ -2599,7 +2600,7 @@ function CheckoutPage({ route }: { route: string }) {
       saveStoredClient({ ...account, planId: plan.id, planName: plan.name, paymentStatus: 'pending', subscriptionStatus: 'pending', implementationStatus: includeImplementation ? 'awaiting_briefing' : account.implementationStatus || 'not_hired' });
       window.location.href = data.initPoint;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Tente novamente.';
+      const message = friendlyErrorMessage(error, 'Tente novamente.', 'client');
       pushToast({ tone: 'warning', title: 'Checkout automático indisponível', message });
       if (!/sessão|login|token|401/i.test(message)) setManualOpen(true);
     } finally {
@@ -2624,7 +2625,7 @@ function CheckoutPage({ route }: { route: string }) {
       if (manualLinks[0]?.url) window.open(manualLinks[0].url, '_blank', 'noopener,noreferrer');
       window.location.hash = '#/conta/painel';
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Pagamento manual bloqueado', message: error instanceof Error ? error.message : 'Faça login novamente e tente outra vez.' });
+      pushToast({ tone: 'warning', title: 'Pagamento manual bloqueado', message: friendlyErrorMessage(error, 'Faca login novamente e tente outra vez.', 'client') });
     } finally {
       setLoading(false);
     }
@@ -3286,7 +3287,7 @@ function DeveloperConsolePage() {
       setLastSync(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
       pushToast({ tone: 'success', title: 'Dados sincronizados', message: 'A Central Dev foi atualizada com os dados do Supabase.' });
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Falha ao sincronizar', message: error instanceof Error ? error.message : 'Tente novamente.' });
+      pushToast({ tone: 'warning', title: 'Falha ao sincronizar', message: friendlyErrorMessage(error, 'Tente novamente.', 'dev') });
     } finally {
       setLoading(false);
     }
@@ -3334,7 +3335,7 @@ function DeveloperConsolePage() {
       setLogin({ email: '', password: '' });
       pushToast({ tone: 'success', title: 'Central Dev liberada', message: 'Acesso administrativo autorizado.' });
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Acesso negado', message: error instanceof Error ? error.message : 'Verifique as credenciais.' });
+      pushToast({ tone: 'warning', title: 'Acesso negado', message: friendlyErrorMessage(error, 'Verifique as credenciais.', 'dev') });
     } finally {
       setLoading(false);
     }
@@ -3450,7 +3451,7 @@ function DeveloperConsolePage() {
       setEditing(null);
       setConfirming(null);
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Falha na ação', message: error instanceof Error ? error.message : 'Tente novamente.' });
+      pushToast({ tone: 'warning', title: 'Falha na ação', message: friendlyErrorMessage(error, 'Tente novamente.', 'dev') });
     } finally {
       setActionLoading(false);
     }
@@ -3503,7 +3504,7 @@ function DeveloperConsolePage() {
       setConfirming(null);
       await loadDashboard();
     } catch (error) {
-      pushToast({ tone: 'warning', title: 'Falha ao gerar key', message: error instanceof Error ? error.message : 'Verifique a tabela agendapro_license_keys.' });
+      pushToast({ tone: 'warning', title: 'Falha ao gerar key', message: friendlyErrorMessage(error, 'Verifique a tabela agendapro_license_keys.', 'dev') });
     } finally {
       setActionLoading(false);
     }

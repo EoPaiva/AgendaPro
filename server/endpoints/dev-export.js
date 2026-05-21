@@ -28,6 +28,6 @@ module.exports = async function handler(req, res) {
     res.setHeader('Content-Disposition',`attachment; filename="agendapro-${entity}.csv"`);
     return res.status(200).send(toCsv(rows));
   } catch (error) {
-    return handleError(res, error, 'Erro ao exportar dados.');
+    return handleError(res, error, 'Erro ao exportar dados.', { exposeDetails: true });
   }
 };

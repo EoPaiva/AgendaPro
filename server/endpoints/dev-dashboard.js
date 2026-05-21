@@ -113,6 +113,6 @@ module.exports = async function handler(req, res) {
       plans: settings.filter(row => String(row.key || '').startsWith('plan:')),
     });
   } catch (error) {
-    return handleError(res, error, 'Erro ao carregar painel dev.');
+    return handleError(res, error, 'Erro ao carregar painel dev.', { exposeDetails: true });
   }
 };

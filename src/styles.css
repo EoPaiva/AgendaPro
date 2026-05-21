@@ -2321,3 +2321,16 @@
   .luxury-service-grid button,
   .luxury-professional-grid button{transition:none}
 }
+.empty-state small{
+  display:block;
+  margin-top:.45rem;
+  color:#64748b;
+  font-weight:800;
+}
+.empty-state-action{
+  display:flex;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:.6rem;
+  margin-top:1rem;
+}

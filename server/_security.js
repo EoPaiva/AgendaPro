@@ -210,14 +210,61 @@ function requireDev(req) {
   return claims;
 }
 
-function handleError(res, error, fallback = 'Erro interno.') {
+function classifyError(error, fallback = 'Erro interno.') {
+  const status = Number(error?.statusCode || error?.status || 500);
+  const raw = String(error?.message || '').trim();
+  const lower = raw.toLowerCase();
+
+  if (status === 401 || lower.includes('sess') || lower.includes('token dev') || lower.includes('token inv')) {
+    return { status: status === 500 ? 401 : status, code: 'SESSION_EXPIRED', message: 'Faca login novamente para continuar.', detail: raw };
+  }
+
+  if (lower.includes('pagamento') || lower.includes('plano') || lower.includes('assinatura')) {
+    return { status, code: 'PLAN_OR_PAYMENT_REQUIRED', message: raw || 'Seu plano precisa estar ativo para usar esta area.', detail: raw };
+  }
+
+  if (status === 403 || lower.includes('acesso bloqueado') || lower.includes('acesso negado')) {
+    return { status: status === 500 ? 403 : status, code: 'ACCESS_DENIED', message: 'Seu acesso nao permite executar esta acao agora.', detail: raw };
+  }
+
+  if (status === 400 || status === 404 || status === 409) {
+    return { status, code: status === 404 ? 'NOT_FOUND' : 'VALIDATION_ERROR', message: raw || fallback, detail: raw };
+  }
+
+  const looksTechnical =
+    lower.includes('supabase') ||
+    lower.includes('service role') ||
+    lower.includes('dev_admin') ||
+    lower.includes('client_session_secret') ||
+    lower.includes('access_token') ||
+    lower.includes('secret') ||
+    lower.includes('fetch failed') ||
+    lower.includes('unexpected token') ||
+    lower.includes('json') ||
+    lower.includes('vercel');
+
+  if (looksTechnical || status >= 500) {
+    return { status, code: 'INTERNAL_ERROR', message: fallback || 'Nao foi possivel concluir agora. Tente novamente em instantes.', detail: raw };
+  }
+
+  return { status, code: 'REQUEST_ERROR', message: raw || fallback, detail: raw };
+}
+
+function handleError(res, error, fallback = 'Erro interno.', options = {}) {
   applySecurityHeaders(res);
-  const status = error.statusCode || 500;
-  return res.status(status).json({ ok: false, message: error.message || fallback });
+  const classified = classifyError(error, fallback);
+  const exposeDetails = Boolean(options && options.exposeDetails);
+  const payload = {
+    ok: false,
+    code: classified.code,
+    message: exposeDetails ? (classified.detail || classified.message || fallback) : (classified.message || fallback)
+  };
+  if (exposeDetails && classified.detail && classified.detail !== payload.message) payload.detail = classified.detail;
+  return res.status(classified.status).json(payload);
 }
 
 function slugify(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 56) || 'cliente-agendapro';
 }
 
-module.exports = { applySecurityHeaders, readJsonBody, cleanText, cleanEmail, cleanPhone, normalizePlan, supabaseRequest, authWithPassword, createAuthUser, issueSignedToken, verifySignedToken, requireClient, requireDev, handleError, slugify, getAccountByEmail, getPrimaryCompany, buildClientSession, safeEqual, logActivity };
+module.exports = { applySecurityHeaders, readJsonBody, cleanText, cleanEmail, cleanPhone, normalizePlan, supabaseRequest, authWithPassword, createAuthUser, issueSignedToken, verifySignedToken, requireClient, requireDev, handleError, classifyError, slugify, getAccountByEmail, getPrimaryCompany, buildClientSession, safeEqual, logActivity };

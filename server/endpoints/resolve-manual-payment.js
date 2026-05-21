@@ -14,5 +14,5 @@ module.exports=async function handler(req,res){
     if(reqRow.company_id) await supabaseRequest(`/rest/v1/agendapro_companies?id=eq.${reqRow.company_id}`,{method:'PATCH',body:JSON.stringify({subscription_status:'active',plan_started_at:new Date().toISOString(),plan_expires_at:new Date(Date.now()+30*24*60*60*1000).toISOString(),onboarding_status:'payment_approved',readiness_score:20})}).catch(()=>null);
   }
   return res.status(200).json({ok:true,status:decision,request:reqRow});
- }catch(error){ return handleError(res,error,'Erro ao resolver pagamento manual.');}
+ }catch(error){ return handleError(res,error,'Erro ao resolver pagamento manual.', { exposeDetails: true });}
 };
