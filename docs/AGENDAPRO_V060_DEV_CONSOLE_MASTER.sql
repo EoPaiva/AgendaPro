@@ -1,0 +1,20 @@
+-- AgendaPro v0.6.0 — Central Dev Master
+create extension if not exists "pgcrypto";
+create table if not exists public.agendapro_dev_audit_logs (id uuid primary key default gen_random_uuid(), actor_email text, action text not null, entity_type text, entity_id text, severity text default 'info', description text, before_data jsonb, after_data jsonb, metadata jsonb default '{}', created_at timestamptz default now());
+create table if not exists public.agendapro_support_notes (id uuid primary key default gen_random_uuid(), entity_type text, entity_id text, client_id uuid, company_id uuid, agenda_id uuid, author_email text, priority text default 'normal', status text default 'open', note text not null, metadata jsonb default '{}', created_at timestamptz default now(), updated_at timestamptz default now());
+create table if not exists public.agendapro_support_cases (id uuid primary key default gen_random_uuid(), client_id uuid, company_id uuid, agenda_id uuid, title text not null, description text, status text default 'open', priority text default 'normal', responsible_email text, resolution text, metadata jsonb default '{}', created_at timestamptz default now(), updated_at timestamptz default now());
+create table if not exists public.agendapro_system_alerts (id uuid primary key default gen_random_uuid(), title text not null, description text, severity text default 'info', entity_type text, entity_id text, status text default 'open', assigned_to text, metadata jsonb default '{}', created_at timestamptz default now(), updated_at timestamptz default now());
+create table if not exists public.agendapro_admin_settings (id uuid primary key default gen_random_uuid(), key text unique not null, value jsonb default '{}', description text, updated_by text, created_at timestamptz default now(), updated_at timestamptz default now());
+create table if not exists public.agendapro_internal_tasks (id uuid primary key default gen_random_uuid(), title text not null, description text, status text default 'open', priority text default 'normal', entity_type text, entity_id text, assigned_to text, due_at timestamptz, metadata jsonb default '{}', created_at timestamptz default now(), updated_at timestamptz default now());
+create index if not exists idx_agp_dev_audit_entity on public.agendapro_dev_audit_logs(entity_type, entity_id);
+create index if not exists idx_agp_support_notes_entity on public.agendapro_support_notes(entity_type, entity_id);
+create index if not exists idx_agp_system_alerts_status on public.agendapro_system_alerts(status, severity);
+create index if not exists idx_agp_internal_tasks_status on public.agendapro_internal_tasks(status, priority);
+alter table public.agendapro_dev_audit_logs enable row level security;
+alter table public.agendapro_support_notes enable row level security;
+alter table public.agendapro_support_cases enable row level security;
+alter table public.agendapro_system_alerts enable row level security;
+alter table public.agendapro_admin_settings enable row level security;
+alter table public.agendapro_internal_tasks enable row level security;
+notify pgrst, 'reload schema';
+select 'AgendaPro v0.6.0 Dev Console Master ready' as status;

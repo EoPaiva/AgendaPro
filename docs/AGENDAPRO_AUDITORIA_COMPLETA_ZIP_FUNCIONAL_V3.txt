@@ -1,0 +1,26 @@
+AgendaPro — leitura completa reforçada do ZIP antigo funcional
+
+O que foi revisado:
+- server/_security.js
+- todos os endpoints em server/endpoints
+- todos os arquivos api/*.js
+- src/lib/supabase.ts e contextos principais
+- .env.example
+- package.json/package-lock
+- SQLs de docs desde v0.5.0 até v0.6.1.7
+- referências REST /rest/v1/*
+- RPCs usadas pelo cadastro
+- tabelas de checkout/webhook que não estavam na primeira auditoria
+
+Achados adicionais além da auditoria anterior:
+1. A versão antiga funcional não depende só de agendapro_client_accounts, agendapro_companies, agendapro_created_agendas e agendapro_public_booking_requests.
+2. Ela também chama agendapro_checkout_sessions, agendapro_payments, agendapro_subscriptions e agendapro_onboarding_sessions via Mercado Pago/webhook.
+3. Ela depende de agendapro_account_companies para achar a empresa da conta.
+4. Ela depende da RPC agendapro_create_client_workspace no cadastro.
+5. Ela usa DEV_ADMIN_EMAIL, DEV_ADMIN_PASSWORD e DEV_ADMIN_SECRET para Central Dev; DEV_ADMIN_TOKEN sozinho não cobre a base antiga funcional.
+6. Existem campos legados críticos que não estavam no primeiro check: account_id, owner_account_id, public_link, published, segment, description, theme, team, hours, rules, customer_phone, notes, key_hash, key_prefix, uses_count, expires_at, review_note.
+7. Se esses campos/tabelas/RPCs faltarem, a interface pode carregar, mas qualquer ação ligada à database falha: login, salvar perfil, publicar agenda, criar agendamento, checkout, Central Dev e keys.
+8. O projeto Vercel agenda-pro está em Node.js 24.x. Isso não prova erro de database, mas se continuar FUNCTION_INVOCATION_FAILED após schema/env corrigidos, vale testar Node 20.x porque era o padrão mais previsível para Vercel Functions CommonJS.
+
+Próximo passo:
+Rodar o SQL AGENDAPRO_SQL_EDITOR_READ_ONLY_TOTAL_AUDIT_V3.sql e olhar a última seção "SOMENTE ITENS FALTANDO". Essa seção é a mais importante.
