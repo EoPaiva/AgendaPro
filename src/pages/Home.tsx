@@ -4120,7 +4120,8 @@ function DeveloperConsolePage() {
     audit: dashboard?.auditLogs || [],
     settings: dashboard?.settings || [],
     supportNotes: dashboard?.supportNotes || [],
-    systemAlerts: dashboard?.systemAlerts || []
+    systemAlerts: dashboard?.systemAlerts || [],
+    operationalHealth: dashboard?.operationalHealth || null
   };
 
   const storedPlanMap = new Map((dashboard?.plans || rows.settings.filter((item: any) => String(item.key || '').startsWith('plan:'))).map((item: any) => [String(item.key || '').replace('plan:', ''), item]));
@@ -4436,7 +4437,7 @@ function DeveloperConsolePage() {
     if (activeTab === 'plans') return <DevPlansPanel plans={adminPlans} money={money} openEdit={(item: any) => openEdit('plan', item, 'Editar plano')} />;
     if (activeTab === 'support') return <DevSupportDesk cases={rows.supportCases} notes={rows.supportNotes} query={query} results={searchPool} open={(item: any) => setSelected(item)} edit={(item: any) => item.entity ? openEdit(item.entity, item.raw) : openEdit('support_case', item)} copy={copy} runAction={runAction} />;
     if (activeTab === 'settings') return <DevSettingsPanel settings={rows.settings} openEdit={(item: any) => openEdit('setting', item, 'Configurar item')} />;
-    if (activeTab === 'health') return <DevHealthPanel metrics={metrics} rows={rows} isDemoLike={isDemoLike} setActiveTab={setActiveTab} />;
+    if (activeTab === 'health') return <DevOperationalHealthPanel metrics={metrics} rows={rows} isDemoLike={isDemoLike} setActiveTab={setActiveTab} copy={copy} refresh={loadDashboard} loading={loading} lastSync={lastSync} />;
     if (activeTab === 'tools') return <DevToolsPanel copy={copy} />;
     return <div className="dev-empty-state"><Wrench/><b>Área preparada</b><span>Estrutura pronta para expansão segura.</span></div>;
   };
@@ -4723,6 +4724,70 @@ function DevHealthPanel({ metrics, rows, isDemoLike, setActiveTab }: { metrics: 
     { title: 'Clientes ativos', value: metrics.activeAccounts || 0, tone: 'success', tab: 'clients', description: 'Contas liberadas para operar o AgendaPro.' }
   ];
   return <div className="dev-panel-card"><div className="dev-card-title"><div><h3>Saúde do sistema</h3><span>Diagnóstico rápido da operação principal, sem depender da demo.</span></div><button type="button" onClick={() => setActiveTab('logs')}>Abrir logs</button></div><div className="dev-health-grid">{checks.map(check => <button key={check.title} className={`dev-health-card ${check.tone}`} type="button" onClick={() => setActiveTab(check.tab)}><span>{check.title}</span><b>{check.value}</b><small>{check.description}</small></button>)}</div></div>;
+}
+
+function DevOperationalHealthPanel({ metrics, rows, isDemoLike, setActiveTab, copy, refresh, loading, lastSync }: { metrics: any; rows: any; isDemoLike: (value: any) => boolean; setActiveTab: (tab: string) => void; copy: (text: string, label?: string) => void; refresh: () => Promise<void>; loading: boolean; lastSync: string }) {
+  const health = rows.operationalHealth || {};
+  const remoteChecks = Array.isArray(health.checks) ? health.checks : [];
+  const sources = Array.isArray(health.sources) ? health.sources : [];
+  const fallbackChecks = [
+    { id: 'manual_payments', title: 'Pagamentos manuais', status: metrics.manualPending ? 'warning' : 'ok', details: String(metrics.manualPending || 0), tab: 'manual', description: 'Pagamentos enviados manualmente aguardando decisao.' },
+    { id: 'webhooks', title: 'Webhooks', status: metrics.webhooksError ? 'error' : 'ok', details: String(metrics.webhooksError || 0), tab: 'webhooks', description: 'Eventos Mercado Pago com falha de processamento.' },
+    { id: 'critical_logs', title: 'Logs criticos', status: metrics.logsCritical ? 'error' : 'ok', details: String(metrics.logsCritical || 0), tab: 'logs', description: 'Falhas registradas em logs operacionais.' },
+    { id: 'draft_agendas', title: 'Agendas incompletas', status: rows.agendas.some((item: any) => !item.slug || !item.business_name || isDemoLike(item.slug)) ? 'warning' : 'ok', details: String(rows.agendas.filter((item: any) => !item.slug || !item.business_name || isDemoLike(item.slug)).length), tab: 'agendas', description: 'Agendas sem dados publicos suficientes ou com slug de teste.' },
+  ];
+  const checks = (remoteChecks.length ? remoteChecks : fallbackChecks).map((item: any) => ({
+    ...item,
+    status: item.status === 'error' || item.status === 'danger' ? 'error' : item.status === 'warning' || item.status === 'attention' ? 'warning' : 'ok',
+  }));
+  const summary = checks.reduce((acc: Record<string, number>, item: any) => {
+    acc[item.status] = (acc[item.status] || 0) + 1;
+    return acc;
+  }, { ok: 0, warning: 0, error: 0 });
+  const score = Number.isFinite(Number(health.score)) ? Number(health.score) : Math.max(0, Math.round((summary.ok / Math.max(1, checks.length)) * 100 - summary.warning * 4 - summary.error * 10));
+  const lastKnownError = health.lastKnownError;
+  const toneOf = (status: string) => status === 'error' ? 'danger' : status === 'warning' ? 'warning' : 'success';
+  const statusText = (status: string) => status === 'error' ? 'Erro' : status === 'warning' ? 'Atencao' : 'OK';
+  const diagnosis = [
+    `AgendaPro Health Check - ${new Date().toLocaleString('pt-BR')}`,
+    `Score: ${score}/100`,
+    `OK: ${summary.ok || 0} | Atencao: ${summary.warning || 0} | Erro: ${summary.error || 0}`,
+    `Ultima sincronizacao: ${lastSync || 'nao sincronizado'}`,
+    '',
+    ...checks.map((item: any) => `${statusText(item.status)} - ${item.title}: ${item.details || item.description || 'sem detalhe'}`),
+    '',
+    lastKnownError ? `Ultimo erro conhecido: ${lastKnownError.title || 'Erro'} | ${lastKnownError.description || 'sem descricao'} | ${lastKnownError.createdAt || 'sem data'}` : 'Ultimo erro conhecido: nenhum erro critico recente carregado',
+  ].join('\n');
+
+  return <div className="dev-health-panel">
+    <section className="dev-panel-card operational-health-hero">
+      <div className="dev-card-title">
+        <div><h3>Health Check operacional</h3><span>Auditoria rapida de ambiente, integracoes, endpoints e tabelas principais sem expor secrets.</span></div>
+        <div className="dev-card-actions"><button type="button" onClick={() => copy(diagnosis, 'Diagnostico operacional')}>Copiar diagnostico</button><button type="button" onClick={refresh} disabled={loading}><RefreshCcw size={15}/>{loading ? 'Atualizando' : 'Atualizar'}</button></div>
+      </div>
+      <div className="operational-health-summary">
+        <article className="health-score"><b>{score}</b><span>/100</span><small>Saude estimada</small></article>
+        <article className="success"><CheckCircle2/><span>OK</span><b>{summary.ok || 0}</b><small>checks saudaveis</small></article>
+        <article className="warning"><AlertTriangle/><span>Atencao</span><b>{summary.warning || 0}</b><small>revisao recomendada</small></article>
+        <article className="danger"><ShieldCheck/><span>Erro</span><b>{summary.error || 0}</b><small>exige correcao</small></article>
+      </div>
+      {lastKnownError && <button type="button" className="health-last-error" onClick={() => setActiveTab('logs')}><AlertTriangle size={16}/><span><b>{lastKnownError.title || 'Ultimo erro conhecido'}</b><small>{lastKnownError.description || 'Sem descricao'} - {formatDate(lastKnownError.createdAt)}</small></span></button>}
+    </section>
+    <section className="dev-health-grid">
+      {checks.map((check: any) => <button key={check.id || check.title} className={`dev-health-card ${toneOf(check.status)}`} type="button" onClick={() => setActiveTab(check.tab || 'logs')}>
+        <span>{check.title}</span>
+        <b>{statusText(check.status)}</b>
+        <small>{check.description}</small>
+        {check.details && <em>{check.details}</em>}
+      </button>)}
+    </section>
+    <section className="dev-panel-card health-source-panel">
+      <div className="dev-card-title"><div><h3>Fontes Supabase</h3><span>Leitura das tabelas usadas no diagnostico. Apenas status, contagem e latencia aparecem aqui.</span></div><button type="button" onClick={() => setActiveTab('logs')}>Abrir logs</button></div>
+      <div className="health-source-grid">
+        {sources.length ? sources.map((source: any) => <article key={source.label} className={source.status === 'error' ? 'danger' : 'success'}><span>{source.label}</span><b>{source.status === 'error' ? 'Erro' : 'OK'}</b><small>{source.status === 'error' ? source.message || 'Falha na leitura' : `${source.count || 0} registro(s) - ${source.latencyMs || 0}ms`}</small></article>) : <div className="dev-empty-state"><Database/><b>Sem diagnostico remoto carregado</b><span>Atualize a Central Dev para carregar o Health Check vindo do backend.</span></div>}
+      </div>
+    </section>
+  </div>;
 }
 
 function DevToolsPanel({ copy }: { copy: (text: string, label?: string) => void }) {
