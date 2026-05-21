@@ -1258,7 +1258,8 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
   const [localScheduleConfig, setLocalScheduleConfig] = useState<ScheduleConfig>(scheduleConfig);
   useEffect(() => { setLocalScheduleConfig(scheduleConfig); }, [JSON.stringify(scheduleConfig)]);
   const [statusFilter, setStatusFilter] = useState('todos');
-  const [clientStatusFilter, setClientStatusFilter] = useState<'all' | 'new' | 'active' | 'recurring' | 'no_return'>('all');
+  const [clientStatusFilter, setClientStatusFilter] = useState<'all' | 'new' | 'active' | 'recurring' | 'vip' | 'no_return' | 'inactive'>('all');
+  const [clientTagFilter, setClientTagFilter] = useState('all');
   const [reportPeriod, setReportPeriod] = useState<'today' | '7d' | '30d' | 'all'>('30d');
   const [localServices, setLocalServices] = useState<any[]>(services);
   const [localTeam, setLocalTeam] = useState<any[]>(team);
@@ -1295,7 +1296,7 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
     return haystack.includes(query.toLowerCase());
   });
   const copy = async (link: string) => { await navigator.clipboard?.writeText(link); pushToast({ tone: 'success', title: 'Link copiado', message: 'Link público copiado.' }); };
-  const updateAppointmentStatus = async (id: string, status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'rescheduled' | 'refused' | 'absent', options: { date?: string; time?: string; internalNote?: string; cancellationReason?: string; rescheduleReason?: string; confirm?: boolean } = {}) => {
+  const updateAppointmentStatus = async (id: string, status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'rescheduled' | 'refused' | 'absent', options: { date?: string; time?: string; internalNote?: string; cancellationReason?: string; rescheduleReason?: string; clientTags?: string[]; crmEvent?: any; confirm?: boolean; successMessage?: string } = {}) => {
     if (!id) return pushToast({ tone: 'warning', title: 'Solicitação sem ID', message: 'Este item não pode ser atualizado porque ainda não veio do banco.' });
     const confirmationMap: Record<string, string> = {
       confirmed: 'Confirmar este agendamento?', cancelled: 'Tem certeza que deseja cancelar este agendamento?', refused: 'Tem certeza que deseja recusar este agendamento?', completed: 'Marcar este atendimento como concluído?', absent: 'Tem certeza que deseja marcar como faltou?', rescheduled: 'Salvar remarcação deste agendamento?'
@@ -1306,14 +1307,20 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
       const response = await fetch('/api/client?action=update-public-booking-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ slug, requestId: id, status, date: options.date, time: options.time, internalNote: options.internalNote, cancellationReason: options.cancellationReason, rescheduleReason: options.rescheduleReason })
+        body: JSON.stringify({ slug, requestId: id, status, date: options.date, time: options.time, internalNote: options.internalNote, cancellationReason: options.cancellationReason, rescheduleReason: options.rescheduleReason, clientTags: options.clientTags, crmEvent: options.crmEvent })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.ok) throw new Error(data?.message || 'Não foi possível atualizar o agendamento.');
       const updated = data.request || {};
-      setAppointments(current => current.map(item => item.id === id ? { ...item, ...updated } : item));
-      setSelectedBooking((current: any | null) => current?.id === id ? { ...current, ...updated } : current);
-      pushToast({ tone: 'success', title: 'Agendamento atualizado', message: `Status alterado para ${bookingStatusLabel(updated.status || status)}.` });
+      const hydrated = {
+        ...updated,
+        internal_note: updated.internal_note || updated.metadata?.internalNote,
+        cancellation_reason: updated.cancellation_reason || updated.metadata?.cancellationReason,
+        reschedule_reason: updated.reschedule_reason || updated.metadata?.rescheduleReason,
+      };
+      setAppointments(current => current.map(item => item.id === id ? { ...item, ...hydrated } : item));
+      setSelectedBooking((current: any | null) => current?.id === id ? { ...current, ...hydrated } : current);
+      pushToast({ tone: 'success', title: 'Agendamento atualizado', message: options.successMessage || `Status alterado para ${bookingStatusLabel(updated.status || status)}.` });
     } catch (error) {
       pushToast({ tone: 'warning', title: 'Não foi possível atualizar', message: friendlyErrorMessage(error, 'Nao foi possivel atualizar agora. Tente novamente.', 'client') });
     } finally {
@@ -1682,6 +1689,17 @@ Qualquer dúvida, estamos à disposição.`;
     if (!Number.isFinite(date.getTime())) return 9999;
     return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
   };
+  const uniqueTextList = (values: any[]) => Array.from(new Set(values.map(item => String(item || '').trim()).filter(Boolean)));
+  const appointmentCrmTags = (item: any) => Array.isArray(item?.metadata?.crmTags) ? item.metadata.crmTags : Array.isArray(item?.crmTags) ? item.crmTags : [];
+  const appointmentCrmHistory = (item: any) => Array.isArray(item?.metadata?.crmHistory) ? item.metadata.crmHistory : [];
+  const crmAutoTags = (profile: any) => uniqueTextList([
+    profile.statusLabel,
+    profile.total >= 5 || profile.valueTotal >= 1500 ? 'VIP' : '',
+    profile.completedCount > 0 ? 'Já atendido' : '',
+    profile.cancelledCount >= 2 ? 'Muitos cancelamentos' : '',
+    profile.lastDays > 30 ? 'Reativação' : '',
+    profile.upcoming ? 'Próximo horário' : '',
+  ]);
   const customerProfiles = Array.from(appointments.reduce((map: Map<string, any>, item: any, index: number) => {
     const phone = normalizeContact(item.customer_phone || item.customer_whatsapp || item.phone);
     const email = String(item.customer_email || item.email || '').toLowerCase().trim();
@@ -1705,9 +1723,26 @@ Qualquer dúvida, estamos à disposição.`;
     const cancelledCount = profile.appointments.filter((item: any) => cleanStatus(item.status) === 'cancelled').length;
     const lastDate = appointmentDateValue(latest);
     const lastDays = daysSince(lastDate);
-    const statusKey = profile.appointments.length >= 2 ? 'recurring' : upcoming ? 'active' : lastDays > 30 ? 'no_return' : 'new';
-    const statusLabel = statusKey === 'recurring' ? 'Recorrente' : statusKey === 'active' ? 'Ativo' : statusKey === 'no_return' ? 'Sem retorno' : 'Novo';
     const valueTotal = profile.appointments.reduce((sum: number, item: any) => sum + Number(item.value || item.price || baseServicePrice || 0), 0);
+    const statusKey = upcoming ? 'active' : valueTotal >= 1500 || profile.appointments.length >= 5 ? 'vip' : profile.appointments.length >= 2 ? 'recurring' : lastDays > 60 ? 'inactive' : lastDays > 30 ? 'no_return' : 'new';
+    const statusLabel = statusKey === 'active' ? 'Ativo' : statusKey === 'vip' ? 'VIP' : statusKey === 'recurring' ? 'Recorrente' : statusKey === 'inactive' ? 'Inativo' : statusKey === 'no_return' ? 'Sem retorno' : 'Novo';
+    const manualTags = uniqueTextList(profile.appointments.flatMap((item: any) => appointmentCrmTags(item)));
+    const crmHistory = profile.appointments.flatMap((item: any) => appointmentCrmHistory(item));
+    const timeline = [
+      ...sorted.map((item: any) => ({
+        type: 'booking',
+        at: appointmentStamp(item),
+        title: bookingStatusLabel(item.status),
+        detail: `${item.service_name || item.metadata?.serviceName || primaryService || 'Atendimento'} · ${appointmentDateValue(item) || 'sem data'} às ${item.requested_time || item.time || '--:--'}`
+      })),
+      ...crmHistory.map((event: any) => ({
+        type: 'crm',
+        at: event.at || '',
+        title: event.type === 'reactivation' ? 'Reativação registrada' : event.type === 'tags_updated' ? 'Tags atualizadas' : 'Evento CRM',
+        detail: event.note || event.channel || event.message || 'Registro operacional'
+      }))
+    ].sort((a: any, b: any) => String(b.at || '').localeCompare(String(a.at || ''))).slice(0, 18);
+    const reactivationMessage = `Olá, ${profile.name}! Tudo bem? Aqui é da ${businessName}. Percebi que já faz um tempo desde seu último atendimento. Quer que eu veja um horário para você esta semana?`;
     return {
       ...profile,
       latest,
@@ -1716,6 +1751,11 @@ Qualquer dúvida, estamos à disposição.`;
       lastDays,
       statusKey,
       statusLabel,
+      tags: uniqueTextList([...manualTags, ...crmAutoTags({ statusLabel, total: profile.appointments.length, valueTotal, completedCount, cancelledCount, lastDays, upcoming })]),
+      manualTags,
+      crmHistory,
+      timeline,
+      reactivationMessage,
       completedCount,
       cancelledCount,
       total: profile.appointments.length,
@@ -1727,17 +1767,27 @@ Qualquer dúvida, estamos à disposição.`;
   const customerSearch = query.trim().toLowerCase();
   const filteredCustomerProfiles = customerProfiles.filter((profile: any) => {
     const byStatus = clientStatusFilter === 'all' || profile.statusKey === clientStatusFilter;
-    const haystack = `${profile.name} ${profile.phone} ${profile.email} ${profile.topService} ${profile.statusLabel}`.toLowerCase();
-    return byStatus && (!customerSearch || haystack.includes(customerSearch));
+    const byTag = clientTagFilter === 'all' || profile.tags.includes(clientTagFilter);
+    const haystack = `${profile.name} ${profile.phone} ${profile.email} ${profile.topService} ${profile.statusLabel} ${profile.tags.join(' ')}`.toLowerCase();
+    return byStatus && byTag && (!customerSearch || haystack.includes(customerSearch));
   });
+  const customerTags = uniqueTextList(customerProfiles.flatMap((profile: any) => profile.tags)).sort((a, b) => a.localeCompare(b));
   const recurringCustomers = customerProfiles.filter((profile: any) => profile.statusKey === 'recurring');
+  const vipCustomers = customerProfiles.filter((profile: any) => profile.statusKey === 'vip' || profile.tags.includes('VIP'));
   const noReturnCustomers = customerProfiles.filter((profile: any) => profile.statusKey === 'no_return');
+  const inactiveCustomers = customerProfiles.filter((profile: any) => profile.statusKey === 'inactive');
+  const customerRankings = {
+    frequent: [...customerProfiles].sort((a: any, b: any) => b.total - a.total).slice(0, 4),
+    revenue: [...customerProfiles].sort((a: any, b: any) => b.valueTotal - a.valueTotal).slice(0, 4),
+    noReturn: [...customerProfiles].filter((profile: any) => profile.statusKey === 'no_return' || profile.statusKey === 'inactive').sort((a: any, b: any) => b.lastDays - a.lastDays).slice(0, 4),
+    cancelled: [...customerProfiles].filter((profile: any) => profile.cancelledCount > 0).sort((a: any, b: any) => b.cancelledCount - a.cancelledCount).slice(0, 4),
+  };
   const customerNextActions = [
-    noReturnCustomers.length ? `Reativar ${noReturnCustomers.length} cliente(s) sem retorno.` : 'Nenhum cliente parado crítico no momento.',
+    noReturnCustomers.length || inactiveCustomers.length ? `Reativar ${noReturnCustomers.length + inactiveCustomers.length} cliente(s) sem retorno.` : 'Nenhum cliente parado crítico no momento.',
     pending.length ? `Confirmar ${pending.length} agendamento(s) pendente(s).` : 'Sem pendências de confirmação.',
-    recurringCustomers.length ? `${recurringCustomers.length} cliente(s) recorrente(s) podem receber oferta de retorno.` : 'Quando clientes repetirem, eles aparecerão como recorrentes.'
+    vipCustomers.length ? `${vipCustomers.length} cliente(s) VIP merecem acompanhamento próximo.` : recurringCustomers.length ? `${recurringCustomers.length} cliente(s) recorrente(s) podem receber oferta de retorno.` : 'Quando clientes repetirem, eles aparecerão como recorrentes.'
   ];
-  const customerProfileText = (profile: any) => `AgendaPro — Cliente 360º\nNegócio: ${businessName}\nCliente: ${profile.name}\nWhatsApp: ${profile.phone || 'não informado'}\nE-mail: ${profile.email || 'não informado'}\nStatus: ${profile.statusLabel}\nAgendamentos: ${profile.total}\nÚltimo serviço: ${profile.topService}\nÚltima data: ${profile.lastDate || 'sem data'}\nPróximo atendimento: ${profile.upcoming ? `${appointmentDateValue(profile.upcoming)} às ${profile.upcoming.requested_time || profile.upcoming.time || '--:--'}` : 'não agendado'}\nReceita estimada: ${currency(profile.valueTotal)}\nObservação interna: ${profile.internalNote || 'sem observação'}`;
+  const customerProfileText = (profile: any) => `AgendaPro — Cliente 360º\nNegócio: ${businessName}\nCliente: ${profile.name}\nWhatsApp: ${profile.phone || 'não informado'}\nE-mail: ${profile.email || 'não informado'}\nStatus: ${profile.statusLabel}\nTags: ${profile.tags?.join(', ') || 'sem tags'}\nAgendamentos: ${profile.total}\nConcluídos: ${profile.completedCount}\nCancelados: ${profile.cancelledCount}\nÚltimo serviço: ${profile.topService}\nÚltima data: ${profile.lastDate || 'sem data'}\nPróximo atendimento: ${profile.upcoming ? `${appointmentDateValue(profile.upcoming)} às ${profile.upcoming.requested_time || profile.upcoming.time || '--:--'}` : 'não agendado'}\nReceita estimada: ${currency(profile.valueTotal)}\nObservação interna: ${profile.internalNote || 'sem observação'}`;
   const copyCustomerProfile = async (profile: any) => {
     await navigator.clipboard?.writeText(customerProfileText(profile));
     pushToast({ tone: 'success', title: 'Cliente copiado', message: 'Resumo 360º copiado para a área de transferência.' });
@@ -1749,6 +1799,38 @@ Qualquer dúvida, estamos à disposição.`;
     if (!internalNote.trim() && !profile.internalNote) return;
     await updateAppointmentStatus(target.id, cleanStatus(target.status) as any, { internalNote, confirm: false });
     setSelectedCustomer((current: any | null) => current?.key === profile.key ? { ...current, internalNote } : current);
+  };
+  const saveCustomerTags = async (profile: any, nextTags: string[], note = 'Tags do cliente atualizadas') => {
+    const target = profile.latest || profile.appointments?.[0];
+    if (!target?.id) return pushToast({ tone: 'warning', title: 'Sem agendamento vinculado', message: 'Este cliente ainda não possui um registro editável no banco.' });
+    const cleanTags = uniqueTextList(nextTags).slice(0, 12);
+    await updateAppointmentStatus(target.id, cleanStatus(target.status) as any, { clientTags: cleanTags, crmEvent: { type: 'tags_updated', note: cleanTags.join(', ') }, confirm: false, successMessage: note });
+    setSelectedCustomer((current: any | null) => current?.key === profile.key ? { ...current, manualTags: cleanTags, tags: uniqueTextList([...cleanTags, ...current.tags.filter((tag: string) => !current.manualTags?.includes(tag))]) } : current);
+  };
+  const addCustomerTag = async (profile: any) => {
+    const tag = window.prompt('Nova tag do cliente', '');
+    if (!tag?.trim()) return;
+    await saveCustomerTags(profile, [...(profile.manualTags || []), tag], 'Tag adicionada ao cliente.');
+  };
+  const removeCustomerTag = async (profile: any, tag: string) => {
+    if (!profile.manualTags?.includes(tag)) return;
+    await saveCustomerTags(profile, profile.manualTags.filter((item: string) => item !== tag), 'Tag removida do cliente.');
+  };
+  const registerCustomerReactivation = async (profile: any, channel: 'copy' | 'whatsapp') => {
+    const target = profile.latest || profile.appointments?.[0];
+    if (!target?.id) return;
+    await updateAppointmentStatus(target.id, cleanStatus(target.status) as any, { crmEvent: { type: 'reactivation', channel, message: profile.reactivationMessage }, confirm: false, successMessage: 'Tentativa de reativacao registrada no CRM.' });
+  };
+  const copyReactivationMessage = async (profile: any) => {
+    await navigator.clipboard?.writeText(profile.reactivationMessage);
+    await registerCustomerReactivation(profile, 'copy');
+  };
+  const openCustomerReactivationWhatsApp = async (profile: any) => {
+    const clean = String(profile.phone || '').replace(/\D/g, '');
+    if (!clean) return pushToast({ tone: 'warning', title: 'WhatsApp ausente', message: 'Este cliente não tem WhatsApp cadastrado.' });
+    await registerCustomerReactivation(profile, 'whatsapp');
+    const target = clean.startsWith('55') ? clean : `55${clean}`;
+    window.open(`https://wa.me/${target}?text=${encodeURIComponent(profile.reactivationMessage)}`, '_blank');
   };
 
   return <section className="real-agenda-dashboard real-agenda-dashboard-plus premium-motion-scope">
@@ -1931,14 +2013,21 @@ Qualquer dúvida, estamos à disposição.`;
         </div>
         <div className="client-management-toolbar">
           <div className="real-search"><Search size={16}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar por nome, WhatsApp, e-mail ou serviço" /></div>
-          <select value={clientStatusFilter} onChange={event => setClientStatusFilter(event.target.value as any)}><option value="all">Todos os clientes</option><option value="new">Novos</option><option value="active">Ativos</option><option value="recurring">Recorrentes</option><option value="no_return">Sem retorno</option></select>
+          <select value={clientStatusFilter} onChange={event => setClientStatusFilter(event.target.value as any)}><option value="all">Todos os clientes</option><option value="new">Novos</option><option value="active">Ativos</option><option value="recurring">Recorrentes</option><option value="vip">VIP</option><option value="no_return">Sem retorno</option><option value="inactive">Inativos</option></select>
+          <select value={clientTagFilter} onChange={event => setClientTagFilter(event.target.value)}><option value="all">Todas as tags</option>{customerTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}</select>
+        </div>
+        <div className="client-ranking-grid">
+          <article><span>Mais frequentes</span>{customerRankings.frequent.length ? customerRankings.frequent.map((profile: any) => <button key={profile.key} onClick={() => setSelectedCustomer(profile)}><b>{profile.name}</b><small>{profile.total} agendamento(s)</small></button>) : <small>Sem histÃ³rico suficiente</small>}</article>
+          <article><span>Maior receita</span>{customerRankings.revenue.length ? customerRankings.revenue.map((profile: any) => <button key={profile.key} onClick={() => setSelectedCustomer(profile)}><b>{profile.name}</b><small>{currency(profile.valueTotal)}</small></button>) : <small>Sem receita estimada</small>}</article>
+          <article><span>Sem retorno</span>{customerRankings.noReturn.length ? customerRankings.noReturn.map((profile: any) => <button key={profile.key} onClick={() => setSelectedCustomer(profile)}><b>{profile.name}</b><small>{profile.lastDays} dia(s)</small></button>) : <small>Nenhum cliente parado</small>}</article>
+          <article><span>Cancelamentos</span>{customerRankings.cancelled.length ? customerRankings.cancelled.map((profile: any) => <button key={profile.key} onClick={() => setSelectedCustomer(profile)}><b>{profile.name}</b><small>{profile.cancelledCount} cancelado(s)</small></button>) : <small>Sem cancelamentos relevantes</small>}</article>
         </div>
         <div className="client-management-grid">
           <article className="client-list-panel">
             <div className="panel-heading"><div><h3>Carteira de clientes</h3><p>{filteredCustomerProfiles.length} cliente(s) encontrado(s).</p></div></div>
             {filteredCustomerProfiles.length ? <div className="client-profile-list">{filteredCustomerProfiles.map((profile: any) => <button key={profile.key} className={selectedCustomer?.key === profile.key ? 'active' : ''} onClick={() => setSelectedCustomer(profile)}>
               <span className="client-avatar-pro">{String(profile.name || 'CL').slice(0, 2).toUpperCase()}</span>
-              <div><b>{profile.name}</b><small>{profile.phone || profile.email || 'Contato não informado'} • {profile.topService}</small><em>{profile.total} agendamento(s) • {profile.statusLabel}</em></div>
+              <div><b>{profile.name}</b><small>{profile.phone || profile.email || 'Contato não informado'} • {profile.topService}</small><em>{profile.total} agendamento(s) • {profile.statusLabel}</em><span className="client-tag-row">{profile.tags.slice(0, 4).map((tag: string) => <strong key={tag}>{tag}</strong>)}</span></div>
               <i>{profile.lastDate ? new Date(`${profile.lastDate}T12:00:00`).toLocaleDateString('pt-BR') : 'sem data'}</i>
             </button>)}</div> : <div className="client-empty-pro"><UsersRound/><b>Nenhum cliente encontrado</b><span>Quando os primeiros agendamentos chegarem, a carteira será montada automaticamente.</span></div>}
           </article>
@@ -1947,7 +2036,7 @@ Qualquer dúvida, estamos à disposição.`;
             <div className="client-mini-chart"><svg viewBox="0 0 260 90"><polyline points="0,70 42,48 84,56 126,32 168,44 210,20 260,28"/></svg></div>
           </article>
           <article className="client-insight-panel featured">
-            {selectedCustomer ? <><Badge tone="green">Visão 360º</Badge><h3>{selectedCustomer.name}</h3><p>{selectedCustomer.statusLabel} • {selectedCustomer.total} agendamento(s) • {currency(selectedCustomer.valueTotal)} estimado(s).</p><div className="client-detail-mini"><span><b>WhatsApp</b>{selectedCustomer.phone || 'Não informado'}</span><span><b>E-mail</b>{selectedCustomer.email || 'Não informado'}</span><span><b>Última data</b>{selectedCustomer.lastDate || 'Sem data'}</span><span><b>Próximo</b>{selectedCustomer.upcoming ? `${appointmentDateValue(selectedCustomer.upcoming)} às ${selectedCustomer.upcoming.requested_time || selectedCustomer.upcoming.time || '--:--'}` : 'Sem próximo horário'}</span></div><div className="client-actions-row"><button onClick={() => openWhatsApp(selectedCustomer.phone, selectedCustomer.name)}>WhatsApp</button><button onClick={() => copyCustomerProfile(selectedCustomer)}>Copiar resumo</button><button onClick={() => saveCustomerInternalNote(selectedCustomer)}>Observação</button></div></> : <><Badge tone="amber">Selecione um cliente</Badge><h3>Abra uma visão completa</h3><p>Clique em um cliente da lista para ver contato, histórico, próximo horário e ações rápidas.</p></>}
+            {selectedCustomer ? <><Badge tone="green">Visão 360º</Badge><h3>{selectedCustomer.name}</h3><p>{selectedCustomer.statusLabel} • {selectedCustomer.total} agendamento(s) • {currency(selectedCustomer.valueTotal)} estimado(s).</p><div className="client-detail-mini"><span><b>WhatsApp</b>{selectedCustomer.phone || 'Não informado'}</span><span><b>E-mail</b>{selectedCustomer.email || 'Não informado'}</span><span><b>Última data</b>{selectedCustomer.lastDate || 'Sem data'}</span><span><b>Próximo</b>{selectedCustomer.upcoming ? `${appointmentDateValue(selectedCustomer.upcoming)} às ${selectedCustomer.upcoming.requested_time || selectedCustomer.upcoming.time || '--:--'}` : 'Sem próximo horário'}</span></div><div className="client-crm-tags">{selectedCustomer.tags.map((tag: string) => <button key={tag} type="button" className={selectedCustomer.manualTags?.includes(tag) ? 'manual' : ''} onClick={() => removeCustomerTag(selectedCustomer, tag)}>{tag}</button>)}<button type="button" onClick={() => addCustomerTag(selectedCustomer)}>+ tag</button></div><div className="client-reactivation-box"><b>Mensagem de reativação</b><p>{selectedCustomer.reactivationMessage}</p><div><button onClick={() => copyReactivationMessage(selectedCustomer)}>Copiar</button><button onClick={() => openCustomerReactivationWhatsApp(selectedCustomer)}>WhatsApp</button></div></div><div className="client-crm-timeline">{selectedCustomer.timeline.slice(0, 6).map((event: any, index: number) => <span key={`${event.type}-${index}`}><b>{event.title}</b><small>{event.detail}</small></span>)}</div><div className="client-actions-row"><button onClick={() => openWhatsApp(selectedCustomer.phone, selectedCustomer.name)}>WhatsApp</button><button onClick={() => copyCustomerProfile(selectedCustomer)}>Copiar resumo</button><button onClick={() => saveCustomerInternalNote(selectedCustomer)}>Observação</button></div></> : <><Badge tone="amber">Selecione um cliente</Badge><h3>Abra uma visão completa</h3><p>Clique em um cliente da lista para ver contato, histórico, próximo horário e ações rápidas.</p></>}
           </article>
         </div>
       </section>}

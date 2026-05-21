@@ -4,6 +4,23 @@ const { normalizeScheduleConfig, serviceDuration, isTimeSlotAvailable } = requir
 const allowed = new Set(['requested', 'pending', 'confirmed', 'cancelled', 'canceled', 'completed', 'refused', 'rejected', 'absent', 'no_show']);
 const statusMap = { pending: 'requested', canceled: 'cancelled', rejected: 'refused', no_show: 'absent' };
 
+function cleanList(value, maxItems = 20) {
+  if (!Array.isArray(value)) return null;
+  return Array.from(new Set(value.map(item => cleanText(item, 60)).filter(Boolean))).slice(0, maxItems);
+}
+
+function cleanCrmEvent(value, session) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    at: new Date().toISOString(),
+    by: session.email,
+    type: cleanText(value.type || 'crm_event', 80),
+    channel: cleanText(value.channel || '', 80) || null,
+    note: cleanText(value.note || '', 500) || null,
+    message: cleanText(value.message || '', 1200) || null,
+  };
+}
+
 module.exports = async function handler(req, res) {
   applySecurityHeaders(res);
 
@@ -55,6 +72,13 @@ module.exports = async function handler(req, res) {
     }
 
     const metadata = { ...(current.metadata || {}), updated_by: session.email, source: 'client_dashboard', history: [...(Array.isArray(current.metadata?.history) ? current.metadata.history : []), { at: new Date().toISOString(), status, by: session.email, previousStatus: current.status, previousDate: current.requested_date, previousTime: current.requested_time }] };
+    if (body.internalNote !== undefined) metadata.internalNote = cleanText(body.internalNote, 1200);
+    if (body.cancellationReason !== undefined) metadata.cancellationReason = cleanText(body.cancellationReason, 800);
+    if (body.rescheduleReason !== undefined) metadata.rescheduleReason = cleanText(body.rescheduleReason, 800);
+    const clientTags = cleanList(body.clientTags);
+    if (clientTags) metadata.crmTags = clientTags;
+    const crmEvent = cleanCrmEvent(body.crmEvent, session);
+    if (crmEvent) metadata.crmHistory = [...(Array.isArray(current.metadata?.crmHistory) ? current.metadata.crmHistory : []), crmEvent].slice(-60);
     const patch = { status, updated_at: new Date().toISOString(), metadata };
     if (body.date) patch.requested_date = nextDate;
     if (body.time) patch.requested_time = nextTime;
