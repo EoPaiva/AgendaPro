@@ -158,8 +158,7 @@ export function AppProvider({children}:{children:ReactNode}){
      setRemoteCompanyId(remote.companyId);
      setDataSource('supabase');
      setSyncStatus('Supabase conectado. Dados operacionais carregados do banco.');
-   }catch(error){
-     console.error(error);
+   }catch{
      setDataSource('localStorage');
      setSyncStatus('Site principal ativo. O bootstrap legado não carregou, mas as APIs seguras continuam sendo a fonte dos dados reais.');
    }
@@ -171,8 +170,7 @@ export function AppProvider({children}:{children:ReactNode}){
  },[]);
 
  const persistSafe = (task:Promise<unknown>) => {
-   task.catch((error)=>{
-     console.warn('Supabase sync error:', error);
+   task.catch(()=>{
      setSyncStatus('A sincronização remota dessa ação falhou. Recarregue os dados ou verifique as APIs/Supabase.');
    });
  };

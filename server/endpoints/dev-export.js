@@ -3,8 +3,10 @@ const { applySecurityHeaders, requireDev, supabaseRequest, handleError } = requi
 function toCsv(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return '';
   const keys = Array.from(rows.reduce((set, row) => { Object.keys(row || {}).forEach(key => set.add(key)); return set; }, new Set()));
+  const sensitiveKey = key => /token|secret|password|senha|service_role|access_token|refresh_token|authorization|cookie/i.test(String(key || ''));
+  const redactedValue = (key, value) => sensitiveKey(key) ? '[redacted]' : value;
   const escape = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
-  return [keys.join(','), ...rows.map(row => keys.map(key => escape(row[key])).join(','))].join('\n');
+  return [keys.join(','), ...rows.map(row => keys.map(key => escape(redactedValue(key, row[key]))).join(','))].join('\n');
 }
 
 module.exports = async function handler(req, res) {
@@ -28,6 +30,6 @@ module.exports = async function handler(req, res) {
     res.setHeader('Content-Disposition',`attachment; filename="agendapro-${entity}.csv"`);
     return res.status(200).send(toCsv(rows));
   } catch (error) {
-    return handleError(res, error, 'Erro ao exportar dados.', { exposeDetails: true });
+    return handleError(res, error, 'Erro ao exportar dados.');
   }
 };

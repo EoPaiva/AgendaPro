@@ -520,6 +520,7 @@ Aguardo a confirmação.`;
 
             <div className="luxury-section-heading"><span>Etapa {5 + stepOffset}</span><h2>Seus dados</h2><p>Seus dados serão usados apenas para confirmar o agendamento.</p></div>
             <div className="luxury-form-grid"><input className="field" placeholder="Nome completo" value={form.name} onChange={e => setForm({...form,name:e.target.value})}/><input className="field" placeholder="WhatsApp" value={form.phone} onChange={e => setForm({...form,phone:formatWhatsappInput(e.target.value)})}/><input className="field" placeholder="E-mail opcional" value={form.email} onChange={e => setForm({...form,email:e.target.value})}/><textarea className="field" placeholder="Observação opcional" value={form.notes} onChange={e => setForm({...form,notes:e.target.value})}/></div>
+            <p className="public-privacy-note">Usamos nome, WhatsApp, e-mail opcional e observação apenas para solicitar, confirmar ou ajustar este agendamento. Para correção ou remoção de dados, fale com a empresa responsável. <a href="#/privacidade">Privacidade</a> · <a href="#/lgpd">LGPD</a></p>
             <p className="luxury-trust-copy">Você receberá a confirmação pelo WhatsApp. O horário fica sujeito à aprovação do estabelecimento.</p>
           </>}
         </article>

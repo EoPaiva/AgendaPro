@@ -51,7 +51,7 @@ async function safePatchCheckoutSession(checkoutSession, payload) {
   await supabaseRequest(`/rest/v1/agendapro_checkout_sessions?id=eq.${encodeURIComponent(checkoutSession.id)}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
-  }).catch(error => console.warn('checkout session patch ignored:', error.message));
+  }).catch(() => console.warn('checkout session patch ignored.'));
 }
 
 function checkoutFallbackResponse({ res, checkoutSession, externalReference, plan, amount, includeImplementation, reason }) {
@@ -144,7 +144,7 @@ module.exports = async function handler(req, res) {
       });
       checkoutSession = Array.isArray(inserted) ? inserted[0] : inserted;
     } catch (error) {
-      console.warn('checkout session warning:', error.message);
+      console.warn('checkout session warning.');
     }
 
     if (!accessToken) {

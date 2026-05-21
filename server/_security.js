@@ -5,6 +5,8 @@ function applySecurityHeaders(res) {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
 }
 
 function readJsonBody(req) {
@@ -156,8 +158,8 @@ async function logActivity({ accountId = null, companyId = null, action = 'event
       method: 'POST',
       body: JSON.stringify({ account_id: accountId, company_id: companyId, action, title, description, severity, metadata })
     });
-  } catch (error) {
-    console.warn('Activity log ignored:', error.message);
+  } catch {
+    console.warn('Activity log ignored.');
   }
 }
 

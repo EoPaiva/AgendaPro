@@ -4,8 +4,8 @@ async function safe(path, fallback = []) {
   try {
     const data = await supabaseRequest(path);
     return Array.isArray(data) ? data : fallback;
-  } catch (error) {
-    console.warn('Dev dashboard optional source ignored:', path, error.message);
+  } catch {
+    console.warn('Dev dashboard optional source ignored.');
     return fallback;
   }
 }
@@ -113,6 +113,6 @@ module.exports = async function handler(req, res) {
       plans: settings.filter(row => String(row.key || '').startsWith('plan:')),
     });
   } catch (error) {
-    return handleError(res, error, 'Erro ao carregar painel dev.', { exposeDetails: true });
+    return handleError(res, error, 'Erro ao carregar painel dev.');
   }
 };

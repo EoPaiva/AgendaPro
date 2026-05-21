@@ -116,7 +116,7 @@ async function writeAudit({ admin, action, entity, id, severity = 'info', descri
   };
 
   await postRows('agendapro_dev_audit_logs', row).catch(error => {
-    console.warn('Dev audit ignored:', error.message);
+    console.warn('Dev audit ignored.');
   });
 
   await logActivity({
@@ -147,7 +147,7 @@ async function activateManualPayment({ payment, admin, reason, payload, now }) {
     approved_at: now,
     paid_at: now,
     metadata: { manual_payment_request_id: payment.id, reviewed_by: admin.email, reason: reason || null },
-  }).catch(error => console.warn('Manual payment mirror ignored:', error.message));
+  }).catch(() => console.warn('Manual payment mirror ignored.'));
 
   if (payment.account_id) {
     await patchById('agendapro_client_accounts', payment.account_id, compact({
@@ -158,7 +158,7 @@ async function activateManualPayment({ payment, admin, reason, payload, now }) {
       expires_at: expiresAt,
       updated_at: now,
       metadata: { ...(payment.metadata || {}), manual_payment_approved_by: admin.email, manual_payment_approved_at: now },
-    })).catch(error => console.warn('Account activation ignored:', error.message));
+    })).catch(() => console.warn('Account activation ignored.'));
   }
 
   if (payment.company_id) {
@@ -171,7 +171,7 @@ async function activateManualPayment({ payment, admin, reason, payload, now }) {
       onboarding_status: 'payment_approved',
       readiness_score: 20,
       updated_at: now,
-    })).catch(error => console.warn('Company activation ignored:', error.message));
+    })).catch(() => console.warn('Company activation ignored.'));
   }
 }
 
@@ -187,7 +187,7 @@ async function updateCommercialAccess({ accountId, companyId, planId = 'professi
       plan_expires_at: expiresAt,
       updated_at: now,
       access_metadata: { source: 'central_dev', reviewed_by: admin.email, reason, updated_at: now },
-    })).catch(error => console.warn('Account commercial access ignored:', error.message));
+    })).catch(() => console.warn('Account commercial access ignored.'));
   }
 
   if (companyId) {
@@ -203,7 +203,7 @@ async function updateCommercialAccess({ accountId, companyId, planId = 'professi
       readiness_score: accessStatus === 'active' ? 20 : 10,
       updated_at: now,
       access_metadata: { source: 'central_dev', reviewed_by: admin.email, reason, updated_at: now },
-    })).catch(error => console.warn('Company commercial access ignored:', error.message));
+    })).catch(() => console.warn('Company commercial access ignored.'));
   }
 }
 
@@ -465,6 +465,6 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({ ok: true, action, entity, result, before: beforeData, after: afterData });
   } catch (error) {
-    return handleError(res, error, 'Erro ao executar acao administrativa.', { exposeDetails: true });
+    return handleError(res, error, 'Erro ao executar acao administrativa.');
   }
 };
