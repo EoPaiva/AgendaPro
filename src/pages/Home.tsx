@@ -99,6 +99,15 @@ const mercadoPagoLinks: Record<string, string> = {
   implementation: import.meta.env.VITE_MERCADO_PAGO_IMPLEMENTATION_LINK || 'https://mpago.la/17N4Eme'
 };
 
+type PaymentFallbackLink = { id: string; label: string; url: string };
+
+function getManualPaymentLinks(planId: string, includeImplementation = false): PaymentFallbackLink[] {
+  const plan = plans.find(item => item.id === planId) || plans[1];
+  const links: PaymentFallbackLink[] = [{ id: plan.id, label: `Plano ${plan.name}`, url: mercadoPagoLinks[plan.id] || mercadoPagoLinks.professional }];
+  if (includeImplementation && plan.id !== 'implementation') links.push({ id: 'implementation', label: 'Implantação assistida', url: mercadoPagoLinks.implementation });
+  return links.filter(item => item.url);
+}
+
 const demoExternalUrl = import.meta.env.VITE_AGENDAPRO_DEMO_URL || 'https://agendapro-demo.vercel.app/';
 
 type ClientAccount = {
@@ -2564,8 +2573,10 @@ function CheckoutPage({ route }: { route: string }) {
   const [includeImplementation, setIncludeImplementation] = useState(route.includes('implantacao=sim'));
   const [manualOpen, setManualOpen] = useState(false);
   const [manualNote, setManualNote] = useState('');
+  const [fallbackInfo, setFallbackInfo] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const total = plan.price + (includeImplementation ? 100 : 0);
+  const manualLinks: PaymentFallbackLink[] = Array.isArray(fallbackInfo?.manualLinks) && fallbackInfo.manualLinks.length ? fallbackInfo.manualLinks : getManualPaymentLinks(plan.id, includeImplementation);
   const startCheckout = async () => {
     if (!hasClientSession()) {
       pushToast({ tone: 'warning', title: 'Login obrigatório', message: 'Entre na sua conta antes de iniciar qualquer pagamento.' });
@@ -2577,6 +2588,13 @@ function CheckoutPage({ route }: { route: string }) {
     try {
       const response = await fetch('/api/payments?action=create-checkout', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ planId: plan.id, fullName: account.fullName, email: account.email, whatsapp: account.whatsapp, businessName: account.businessName, password: 'created-account', includeImplementation }) });
       const data = await response.json().catch(() => ({}));
+      if (data?.fallback) {
+        setFallbackInfo(data);
+        setManualOpen(true);
+        saveStoredClient({ ...account, planId: plan.id, planName: plan.name, paymentStatus: 'pending', subscriptionStatus: 'pending', implementationStatus: includeImplementation ? 'awaiting_briefing' : account.implementationStatus || 'not_hired' });
+        pushToast({ tone: 'info', title: 'Checkout em modo manual', message: data.message || 'Use o link manual e aguarde conferência para liberar o plano.' });
+        return;
+      }
       if (!response.ok || !data?.initPoint) throw new Error(data?.message || 'Checkout automático não respondeu.');
       saveStoredClient({ ...account, planId: plan.id, planName: plan.name, paymentStatus: 'pending', subscriptionStatus: 'pending', implementationStatus: includeImplementation ? 'awaiting_briefing' : account.implementationStatus || 'not_hired' });
       window.location.href = data.initPoint;
@@ -2598,12 +2616,12 @@ function CheckoutPage({ route }: { route: string }) {
     const next = { ...account, planId: plan.id, planName: plan.name, paymentStatus: 'manual_pending' as const, subscriptionStatus: 'pending' as const, implementationStatus: includeImplementation ? 'awaiting_briefing' as const : account.implementationStatus || 'not_hired' as const };
     setLoading(true);
     try {
-      const response = await fetch('/api/client?action=create-manual-payment-request', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ account: next, amount: total, note: manualNote, paymentLink: mercadoPagoLinks[plan.id], includeImplementation }) });
+      const response = await fetch('/api/client?action=create-manual-payment-request', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ account: next, planId: plan.id, planName: plan.name, amount: total, note: manualNote, paymentLink: manualLinks[0]?.url || mercadoPagoLinks[plan.id], paymentLinks: manualLinks, includeImplementation }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.ok) throw new Error(data?.message || 'Não foi possível registrar o pagamento manual.');
       saveStoredClient(next);
-      pushToast({ tone: 'success', title: 'Solicitação manual registrada', message: 'Aguarde a confirmação do desenvolvedor para liberação do acesso.' });
-      window.open(mercadoPagoLinks[plan.id], '_blank', 'noopener,noreferrer');
+      pushToast({ tone: 'success', title: 'Solicitação manual registrada', message: data?.externalReference ? `Referência ${data.externalReference} criada para conferência.` : 'Aguarde a confirmação do desenvolvedor para liberação do acesso.' });
+      if (manualLinks[0]?.url) window.open(manualLinks[0].url, '_blank', 'noopener,noreferrer');
       window.location.hash = '#/conta/painel';
     } catch (error) {
       pushToast({ tone: 'warning', title: 'Pagamento manual bloqueado', message: error instanceof Error ? error.message : 'Faça login novamente e tente outra vez.' });
@@ -2612,8 +2630,97 @@ function CheckoutPage({ route }: { route: string }) {
     }
   };
   return <PublicShell>
-    <section className="page-hero"><Badge tone="green">Checkout seguro</Badge><h1>Pagamento vinculado à conta do cliente.</h1><p>O acesso será liberado automaticamente por API/webhook ou manualmente após confirmação do desenvolvedor.</p>{account && hasClientSession() && <div className="checkout-session-banner"><span>Você está logado nesta conta</span><strong>{account.businessName || account.fullName}</strong><small>{account.email} • Plano selecionado: {plan.name}</small><a href="#/conta/painel">Abrir painel da conta</a></div>}</section>
-    <section className="section checkout-grid checkout-grid-expanded"><article className="checkout-registration"><span className="eyebrow"><Lock size={16}/> Conta vinculada</span><h2>{account?.businessName || 'Cadastre-se antes de pagar'}</h2><p>{account ? `Você está logado como ${account.email}. Este pagamento ficará vinculado a essa conta.` : 'Crie conta para vincular o pagamento ao cliente certo.'}</p>{account && hasClientSession() && <div className="linked-account-card"><b>Conta ativa no site</b><span>{account.businessName || account.fullName}</span><small>{account.email}</small></div>}<label className="implementation-check"><input type="checkbox" checked={includeImplementation} onChange={e => setIncludeImplementation(e.target.checked)} /><div><b>Adicionar implantação assistida por R$ 100</b><span>Configuração inicial em 24h a 48h após briefing completo, caso não haja imprevistos.</span></div></label>{!account && <a className="btn primary full" href="#/conta/cadastro">Criar conta</a>}</article><article className="checkout-summary"><h2>{plan.name}</h2><p>{plan.description}</p><strong>{currency(plan.price)}<small>/mês</small></strong>{includeImplementation && <div className="addon-line"><span>Implantação assistida</span><b>+ R$ 100,00</b></div>}<div className="addon-total"><span>Total inicial</span><b>{currency(total)}</b></div><ul>{plan.features.map(feature => <li key={feature}><CheckCircle2 size={16}/>{feature}</li>)}</ul></article><article className="payment-card payment-card-wide"><span className="eyebrow"><CreditCard size={16}/> Mercado Pago</span><h2>Realizar pagamento</h2>{account && hasClientSession() ? <p className="payment-account-confirmation">Sessão ativa: o pagamento será registrado para <b>{account.email}</b>.</p> : <p>Use o checkout automático para liberação via webhook. O link manual exige confirmação do desenvolvedor antes de liberar o acesso.</p>}<div className="payment-methods"><button onClick={startCheckout} disabled={loading || !account}><QrCode/> Pix</button><button onClick={startCheckout} disabled={loading || !account}><CreditCard/> Cartão</button><button onClick={startCheckout} disabled={loading || !account}><ClipboardList/> Boleto</button></div><button className="btn primary full" onClick={startCheckout} disabled={loading || !account}>{loading ? 'Criando checkout...' : `Pagar ${plan.name}`}</button><button className="btn secondary full" onClick={() => { if (!hasClientSession()) { pushToast({ tone: 'warning', title: 'Login obrigatório', message: 'Entre na sua conta antes de usar o pagamento manual.' }); window.location.hash = account ? '#/conta/login' : '#/conta/cadastro'; return; } setManualOpen(!manualOpen); }} disabled={loading || !account}>Usar link manual do Mercado Pago</button>{manualOpen && <div className="manual-payment-box"><AlertTriangle/><div><b>Pagamento manual não libera acesso automaticamente.</b><p>Após pagar pelo link manual, sua solicitação ficará como “aguardando confirmação”. O desenvolvedor irá conferir o recebimento no Mercado Pago e liberar ou reprovar o acesso manualmente.</p><textarea className="field" value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="Cole ID, e-mail usado no pagamento ou observação/comprovante."/><button className="btn primary full" onClick={sendManual} disabled={loading || !account}>{loading ? 'Registrando...' : 'Registrar pagamento manual e abrir link'}</button></div></div>}<a className="btn secondary full" href="#/planos">Voltar aos planos</a></article></section>
+    <section className="page-hero">
+      <Badge tone="green">Checkout seguro</Badge>
+      <h1>Pagamento vinculado à conta do cliente.</h1>
+      <p>O acesso será liberado automaticamente por API/webhook ou manualmente após confirmação do desenvolvedor.</p>
+      {account && hasClientSession() && <div className="checkout-session-banner">
+        <span>Você está logado nesta conta</span>
+        <strong>{account.businessName || account.fullName}</strong>
+        <small>{account.email} • Plano selecionado: {plan.name}</small>
+        <a href="#/conta/painel">Abrir painel da conta</a>
+      </div>}
+    </section>
+
+    <section className="section checkout-grid checkout-grid-expanded">
+      <article className="checkout-registration">
+        <span className="eyebrow"><Lock size={16}/> Conta vinculada</span>
+        <h2>{account?.businessName || 'Cadastre-se antes de pagar'}</h2>
+        <p>{account ? `Você está logado como ${account.email}. Este pagamento ficará vinculado a essa conta.` : 'Crie conta para vincular o pagamento ao cliente certo.'}</p>
+        {account && hasClientSession() && <div className="linked-account-card">
+          <b>Conta ativa no site</b>
+          <span>{account.businessName || account.fullName}</span>
+          <small>{account.email}</small>
+        </div>}
+        <label className="implementation-check">
+          <input type="checkbox" checked={includeImplementation} onChange={e => setIncludeImplementation(e.target.checked)} />
+          <div>
+            <b>Adicionar implantação assistida por R$ 100</b>
+            <span>Configuração inicial em 24h a 48h após briefing completo, caso não haja imprevistos.</span>
+          </div>
+        </label>
+        {!account && <a className="btn primary full" href="#/conta/cadastro">Criar conta</a>}
+      </article>
+
+      <article className="checkout-summary">
+        <h2>{plan.name}</h2>
+        <p>{plan.description}</p>
+        <strong>{currency(plan.price)}<small>/mês</small></strong>
+        {includeImplementation && <div className="addon-line"><span>Implantação assistida</span><b>+ R$ 100,00</b></div>}
+        <div className="addon-total"><span>Total inicial</span><b>{currency(total)}</b></div>
+        <ul>{plan.features.map((feature: string) => <li key={feature}><CheckCircle2 size={16}/>{feature}</li>)}</ul>
+      </article>
+
+      <article className="payment-card payment-card-wide">
+        <span className="eyebrow"><CreditCard size={16}/> Mercado Pago</span>
+        <h2>Realizar pagamento</h2>
+        {account && hasClientSession()
+          ? <p className="payment-account-confirmation">Sessão ativa: o pagamento será registrado para <b>{account.email}</b>.</p>
+          : <p>Use o checkout automático para liberação via webhook. O link manual exige confirmação do desenvolvedor antes de liberar o acesso.</p>}
+
+        {fallbackInfo && <div className="checkout-fallback-card">
+          <AlertTriangle size={18}/>
+          <div>
+            <b>Checkout automático em contingência</b>
+            <span>{fallbackInfo.message || 'Use o link manual abaixo e aguarde a conferência do desenvolvedor.'}</span>
+            {fallbackInfo.externalReference && <small>Referência: {fallbackInfo.externalReference}</small>}
+          </div>
+        </div>}
+
+        <div className="payment-methods">
+          <button onClick={startCheckout} disabled={loading || !account}><QrCode/> Pix</button>
+          <button onClick={startCheckout} disabled={loading || !account}><CreditCard/> Cartão</button>
+          <button onClick={startCheckout} disabled={loading || !account}><ClipboardList/> Boleto</button>
+        </div>
+
+        <button className="btn primary full" onClick={startCheckout} disabled={loading || !account}>
+          {loading ? 'Criando checkout...' : `Pagar ${plan.name}`}
+        </button>
+        <button className="btn secondary full" onClick={() => {
+          if (!hasClientSession()) {
+            pushToast({ tone: 'warning', title: 'Login obrigatório', message: 'Entre na sua conta antes de usar o pagamento manual.' });
+            window.location.hash = account ? '#/conta/login' : '#/conta/cadastro';
+            return;
+          }
+          setManualOpen(!manualOpen);
+        }} disabled={loading || !account}>Usar link manual do Mercado Pago</button>
+
+        {manualOpen && <div className="manual-payment-box">
+          <AlertTriangle/>
+          <div>
+            <b>Pagamento manual não libera acesso automaticamente.</b>
+            <p>Após pagar pelo link manual, sua solicitação ficará como “aguardando confirmação”. O desenvolvedor irá conferir o recebimento no Mercado Pago e liberar ou reprovar o acesso manualmente.</p>
+            {fallbackInfo?.externalReference && <span className="manual-reference">Referência: {fallbackInfo.externalReference}</span>}
+            <div className="manual-link-list">
+              {manualLinks.map(link => <a key={link.id} href={link.url} target="_blank" rel="noreferrer">{link.label}</a>)}
+            </div>
+            <textarea className="field" value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="Cole ID, e-mail usado no pagamento ou observação/comprovante."/>
+            <button className="btn primary full" onClick={sendManual} disabled={loading || !account}>{loading ? 'Registrando...' : 'Registrar pagamento manual e abrir link'}</button>
+          </div>
+        </div>}
+        <a className="btn secondary full" href="#/planos">Voltar aos planos</a>
+      </article>
+    </section>
   </PublicShell>;
 }
 
@@ -2753,6 +2860,13 @@ function getDevEditFields(entity: string, item: any): DevEditableField[] {
     { name: 'note', label: 'Observação do cliente', type: 'textarea' },
   ];
 
+  if (entity === 'payment') return [
+    { name: 'status', label: 'Status', type: 'select', options: [['paid', 'Pago'], ['approved', 'Aprovado'], ['pending', 'Pendente'], ['pending_review', 'Em análise'], ['rejected', 'Reprovado'], ['cancelled', 'Cancelado']] },
+    { name: 'amount', label: 'Valor', type: 'number' },
+    { name: 'payer_email', label: 'E-mail pagador', type: 'email' },
+    { name: 'description', label: 'Descrição', type: 'textarea' },
+  ];
+
   if (entity === 'license_key') return [
     { name: 'status', label: 'Status', type: 'select', options: keyStatus },
     { name: 'type', label: 'Tipo' },
@@ -2833,6 +2947,7 @@ function normalizeCanonicalEntity(entity: string) {
     companies: 'company',
     agendas: 'agenda',
     appointments: 'appointment',
+    payments: 'payment',
     manual: 'manual_payment',
     manual_payments: 'manual_payment',
     keys: 'license_key',
@@ -3325,11 +3440,12 @@ function DeveloperConsolePage() {
     const slug = item.public_slug || item.slug || item.agenda_slug;
     return <div className="dev-actions">
       <button type="button" onClick={() => setSelected({ type: canonical, data: item })}>Detalhes</button>
-      {['client', 'company', 'agenda', 'manual_payment', 'license_key', 'webhook', 'briefing', 'implementation'].includes(canonical) && <button type="button" onClick={() => openEdit(canonical, item)}>Editar</button>}
-      {canonical === 'client' && <><button type="button" onClick={() => openConfirm({ entity: 'client', action: 'activate', item, payload: { status: 'active', subscription_status: 'active' }, title: 'Ativar cliente', message: 'Ativar este cliente e marcar assinatura como ativa?', confirmLabel: 'Ativar' })}>Ativar</button><button type="button" onClick={() => openConfirm({ entity: 'client', action: 'suspend', item, payload: { status: 'suspended', subscription_status: 'suspended' }, title: 'Suspender cliente', message: 'Suspender este cliente?', confirmLabel: 'Suspender', requireReason: true, danger: true })}>Suspender</button></>}
-      {canonical === 'company' && <><button type="button" onClick={() => openConfirm({ entity: 'company', action: 'activate', item, payload: { status: 'active', subscription_status: 'active' }, title: 'Ativar empresa', message: 'Ativar esta empresa?', confirmLabel: 'Ativar' })}>Ativar</button><button type="button" onClick={() => openConfirm({ entity: 'company', action: 'suspend', item, payload: { status: 'suspended', subscription_status: 'suspended' }, title: 'Suspender empresa', message: 'Suspender esta empresa?', confirmLabel: 'Suspender', requireReason: true, danger: true })}>Suspender</button>{slug && <><button type="button" onClick={() => window.open(buildPublicLink(slug), '_blank')}>Página</button><button type="button" onClick={() => copy(buildBookingLink(slug), 'Link de agendamento')}>Copiar</button></>}</>}
+      {['client', 'company', 'agenda', 'payment', 'manual_payment', 'license_key', 'webhook', 'briefing', 'implementation'].includes(canonical) && <button type="button" onClick={() => openEdit(canonical, item)}>Editar</button>}
+      {canonical === 'client' && <><button type="button" onClick={() => openConfirm({ entity: 'client', action: 'activate', item, payload: { status: 'active', subscription_status: 'active' }, title: 'Ativar cliente', message: 'Ativar este cliente e marcar assinatura como ativa?', confirmLabel: 'Ativar' })}>Ativar</button><button type="button" onClick={() => openConfirm({ entity: 'client', action: 'temporary_access', item, payload: { duration_days: 7, plan: item.plan || item.current_plan_id || 'professional' }, title: 'Liberar acesso temporário', message: 'Liberar 7 dias de acesso temporário para este cliente?', confirmLabel: 'Liberar 7 dias', requireReason: true })}>7 dias</button><button type="button" onClick={() => openConfirm({ entity: 'client', action: 'suspend', item, payload: { status: 'suspended', subscription_status: 'suspended' }, title: 'Suspender cliente', message: 'Suspender este cliente?', confirmLabel: 'Suspender', requireReason: true, danger: true })}>Suspender</button></>}
+      {canonical === 'company' && <><button type="button" onClick={() => openConfirm({ entity: 'company', action: 'activate', item, payload: { status: 'active', subscription_status: 'active' }, title: 'Ativar empresa', message: 'Ativar esta empresa?', confirmLabel: 'Ativar' })}>Ativar</button><button type="button" onClick={() => openConfirm({ entity: 'company', action: 'temporary_access', item, payload: { duration_days: 7, current_plan_id: item.current_plan_id || item.plan || 'professional' }, title: 'Liberar acesso temporário', message: 'Liberar 7 dias de acesso temporário para esta empresa?', confirmLabel: 'Liberar 7 dias', requireReason: true })}>7 dias</button><button type="button" onClick={() => openConfirm({ entity: 'company', action: 'suspend', item, payload: { status: 'suspended', subscription_status: 'suspended' }, title: 'Suspender empresa', message: 'Suspender esta empresa?', confirmLabel: 'Suspender', requireReason: true, danger: true })}>Suspender</button>{slug && <><button type="button" onClick={() => window.open(buildPublicLink(slug), '_blank')}>Página</button><button type="button" onClick={() => copy(buildBookingLink(slug), 'Link de agendamento')}>Copiar</button></>}</>}
       {canonical === 'agenda' && <>{slug && <><button type="button" onClick={() => window.open(buildPublicLink(slug), '_blank')}>Pública</button><button type="button" onClick={() => copy(buildBookingLink(slug), 'Link de agendamento')}>Copiar</button><button type="button" onClick={() => window.open(`#/conta/agenda/${slug}/dashboard`, '_blank')}>Dashboard</button></>}<button type="button" onClick={() => openConfirm({ entity: 'agenda', action: 'publish', item, payload: { status: 'published' }, title: 'Publicar agenda', message: 'Publicar esta agenda para acesso público?', confirmLabel: 'Publicar' })}>Publicar</button><button type="button" onClick={() => openConfirm({ entity: 'agenda', action: 'pause', item, payload: { status: 'paused' }, title: 'Pausar agenda', message: 'Pausar esta agenda e impedir novos agendamentos?', confirmLabel: 'Pausar', requireReason: true, danger: true })}>Pausar</button></>}
       {canonical === 'manual_payment' && <><button type="button" onClick={() => openConfirm({ entity: 'manual_payment', action: 'approve', item, payload: { status: 'approved' }, title: 'Aprovar pagamento manual', message: 'Aprovar este pagamento manual e liberar o plano automaticamente?', confirmLabel: 'Aprovar pagamento' })}>Aprovar</button><button type="button" onClick={() => openConfirm({ entity: 'manual_payment', action: 'reject', item, payload: { status: 'rejected' }, title: 'Reprovar pagamento manual', message: 'Reprovar este pagamento sem liberar o plano?', confirmLabel: 'Reprovar', requireReason: true, danger: true })}>Reprovar</button><button type="button" onClick={() => openConfirm({ entity: 'manual_payment', action: 'request_adjustment', item, payload: { status: 'needs_adjustment' }, title: 'Solicitar ajuste', message: 'Marcar este pagamento como aguardando ajuste do cliente?', confirmLabel: 'Solicitar ajuste', requireReason: true })}>Solicitar ajuste</button></>}
+      {canonical === 'payment' && <><button type="button" onClick={() => openConfirm({ entity: 'payment', action: 'approve', item, payload: { status: 'paid' }, title: 'Aprovar pagamento automático', message: 'Marcar este pagamento como pago e liberar o plano vinculado?', confirmLabel: 'Aprovar pagamento', requireReason: true })}>Aprovar</button><button type="button" onClick={() => openConfirm({ entity: 'payment', action: 'reject', item, payload: { status: 'rejected' }, title: 'Reprovar pagamento automático', message: 'Marcar este pagamento como reprovado sem liberar acesso?', confirmLabel: 'Reprovar', requireReason: true, danger: true })}>Reprovar</button></>}
       {canonical === 'appointment' && <><button type="button" onClick={() => openConfirm({ entity: 'appointment', action: 'confirm', item, payload: { status: 'confirmed' }, title: 'Confirmar agendamento', message: 'Confirmar este agendamento?', confirmLabel: 'Confirmar' })}>Confirmar</button><button type="button" onClick={() => openConfirm({ entity: 'appointment', action: 'cancel', item, payload: { status: 'cancelled' }, title: 'Cancelar agendamento', message: 'Cancelar este agendamento?', confirmLabel: 'Cancelar', requireReason: true, danger: true })}>Cancelar</button></>}
       {canonical === 'license_key' && <>{(item.key_prefix || item.key_preview || item.masked_key) && <button type="button" onClick={() => copy(item.key_prefix || item.key_preview || item.masked_key, 'Prefixo da key')}>Copiar</button>}<button type="button" onClick={() => openConfirm({ entity: 'license_key', action: 'renew', item, payload: { duration_days: item.duration_days || 30 }, title: 'Renovar validade', message: 'Renovar a validade desta key conforme sua duração configurada?', confirmLabel: 'Renovar' })}>Renovar</button><button type="button" onClick={() => openConfirm({ entity: 'license_key', action: 'revoke', item, payload: { status: 'revoked' }, title: 'Revogar key', message: 'Revogar esta key? Ela não poderá ser usada futuramente.', confirmLabel: 'Revogar', requireReason: true, danger: true })}>Revogar</button><button type="button" onClick={() => openConfirm({ entity: 'license_key', action: 'disable', item, payload: { status: 'disabled' }, title: 'Desativar key', message: 'Desativar temporariamente esta key?', confirmLabel: 'Desativar', requireReason: true })}>Desativar</button><button type="button" onClick={() => openConfirm({ entity: 'license_key', action: 'reactivate', item, payload: { status: 'available' }, title: 'Reativar key', message: 'Reativar esta key?', confirmLabel: 'Reativar' })}>Reativar</button></>}
       {canonical === 'webhook' && <><button type="button" onClick={() => copy(JSON.stringify(item, null, 2), 'Payload')}>Copiar payload</button><button type="button" onClick={() => openConfirm({ entity: 'webhook', action: 'reprocess', item, payload: {}, title: 'Reprocessar webhook', message: 'Marcar este webhook para reprocessamento?', confirmLabel: 'Reprocessar' })}>Reprocessar</button><button type="button" onClick={() => openConfirm({ entity: 'webhook', action: 'resolve', item, payload: {}, title: 'Marcar como resolvido', message: 'Marcar este webhook como resolvido?', confirmLabel: 'Resolver' })}>Resolver</button></>}

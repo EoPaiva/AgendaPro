@@ -49,7 +49,7 @@ function pick(payload, allowed) {
 
 function normalizePayload(payload) {
   const next = { ...(payload || {}) };
-  ['name', 'business_name', 'full_name', 'email', 'whatsapp', 'phone', 'address', 'description', 'notes', 'note', 'review_note', 'internal_note', 'processing_error', 'title'].forEach(key => {
+  ['name', 'business_name', 'full_name', 'email', 'payer_email', 'whatsapp', 'phone', 'address', 'description', 'notes', 'note', 'review_note', 'internal_note', 'processing_error', 'title'].forEach(key => {
     if (next[key] !== undefined && next[key] !== null) next[key] = cleanText(next[key], key.includes('description') || key.includes('note') || key.includes('error') ? 1200 : 240);
   });
   ['plan', 'plan_id', 'current_plan_id', 'status', 'subscription_status', 'payment_status', 'onboarding_status', 'type', 'priority'].forEach(key => {
@@ -175,6 +175,38 @@ async function activateManualPayment({ payment, admin, reason, payload, now }) {
   }
 }
 
+async function updateCommercialAccess({ accountId, companyId, planId = 'professional', paymentStatus = 'approved', subscriptionStatus = 'active', accessStatus = 'active', expiresAt = null, admin, reason, now }) {
+  if (accountId) {
+    await patchById('agendapro_client_accounts', accountId, compact({
+      status: accessStatus === 'active' ? 'active' : 'pending',
+      payment_status: paymentStatus,
+      subscription_status: subscriptionStatus,
+      access_status: accessStatus,
+      plan: planId,
+      expires_at: expiresAt,
+      plan_expires_at: expiresAt,
+      updated_at: now,
+      access_metadata: { source: 'central_dev', reviewed_by: admin.email, reason, updated_at: now },
+    })).catch(error => console.warn('Account commercial access ignored:', error.message));
+  }
+
+  if (companyId) {
+    await patchById('agendapro_companies', companyId, compact({
+      status: accessStatus === 'active' ? 'active' : 'pending',
+      payment_status: paymentStatus,
+      subscription_status: subscriptionStatus,
+      access_status: accessStatus,
+      current_plan_id: planId,
+      plan_started_at: accessStatus === 'active' ? now : undefined,
+      plan_expires_at: expiresAt,
+      onboarding_status: accessStatus === 'active' ? 'payment_approved' : 'payment_pending',
+      readiness_score: accessStatus === 'active' ? 20 : 10,
+      updated_at: now,
+      access_metadata: { source: 'central_dev', reviewed_by: admin.email, reason, updated_at: now },
+    })).catch(error => console.warn('Company commercial access ignored:', error.message));
+  }
+}
+
 module.exports = async function handler(req, res) {
   applySecurityHeaders(res);
   if (req.method !== 'POST') {
@@ -219,24 +251,77 @@ module.exports = async function handler(req, res) {
       if (status === 'approved') await activateManualPayment({ payment: afterData || beforeData, admin, reason, payload, now });
       severity = status === 'approved' ? 'success' : status === 'rejected' ? 'warning' : 'info';
       auditDescription = status === 'approved' ? 'Pagamento manual aprovado e plano liberado.' : status === 'rejected' ? 'Pagamento manual reprovado sem liberar plano.' : 'Pagamento manual atualizado pela Central Dev.';
+    } else if (entity === 'payment') {
+      if (!id) return res.status(400).json({ ok: false, message: 'Informe o pagamento.' });
+      beforeData = await getOne('agendapro_payments', id);
+      if (!beforeData) return res.status(404).json({ ok: false, message: 'Pagamento não encontrado.' });
+      const status = normalizeStatus(payload.status || action);
+      const mappedStatus = ['approved', 'paid'].includes(status) ? 'paid' : ['rejected', 'failed'].includes(status) ? 'rejected' : status;
+      const patch = compact({
+        ...pick(payload, ['amount', 'description', 'payer_email', 'metadata']),
+        status: mappedStatus,
+        approved_at: mappedStatus === 'paid' ? (beforeData.approved_at || now) : payload.approved_at,
+        paid_at: mappedStatus === 'paid' ? (beforeData.paid_at || now) : payload.paid_at,
+        metadata: { ...(beforeData.metadata || {}), ...(payload.metadata || {}), source: 'central_dev', action, reason, reviewed_by: admin.email, reviewed_at: now },
+        updated_at: now,
+      });
+      result = await patchById('agendapro_payments', id, patch);
+      afterData = Array.isArray(result) ? result[0] : result;
+      let session = null;
+      if (beforeData.checkout_session_id) session = await getOne('agendapro_checkout_sessions', beforeData.checkout_session_id).catch(() => null);
+      const accountId = beforeData.account_id || session?.account_id || payload.account_id || null;
+      const companyId = beforeData.company_id || session?.company_id || payload.company_id || null;
+      const planId = session?.plan_id || payload.plan_id || beforeData.plan_id || 'professional';
+      if (mappedStatus === 'paid') {
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        await updateCommercialAccess({ accountId, companyId, planId, paymentStatus: 'approved', subscriptionStatus: 'active', accessStatus: 'active', expiresAt, admin, reason, now });
+      } else if (mappedStatus === 'rejected') {
+        await updateCommercialAccess({ accountId, companyId, planId, paymentStatus: 'rejected', subscriptionStatus: 'pending', accessStatus: 'pending', expiresAt: null, admin, reason, now });
+      }
+      severity = mappedStatus === 'paid' ? 'success' : mappedStatus === 'rejected' ? 'warning' : 'info';
+      auditDescription = mappedStatus === 'paid' ? 'Pagamento automático marcado como aprovado e plano liberado.' : mappedStatus === 'rejected' ? 'Pagamento automático marcado como recusado.' : 'Pagamento automático atualizado pela Central Dev.';
     } else if (entity === 'client') {
       if (!id) return res.status(400).json({ ok: false, message: 'Informe o cliente.' });
       beforeData = await getOne('agendapro_client_accounts', id);
-      const allowed = pick(payload, ['full_name', 'name', 'email', 'phone', 'whatsapp', 'status', 'plan', 'payment_status', 'subscription_status', 'expires_at', 'company_id', 'internal_note', 'metadata']);
+      if (action === 'temporary_access') {
+        const planId = payload.plan || payload.plan_id || beforeData?.plan || 'professional';
+        const expiresAt = new Date(Date.now() + Number(payload.duration_days || 7) * 24 * 60 * 60 * 1000).toISOString();
+        payload.status = 'active';
+        payload.plan = planId;
+        payload.payment_status = 'approved_manual';
+        payload.subscription_status = 'active';
+        payload.access_status = 'active';
+        payload.expires_at = expiresAt;
+        payload.plan_expires_at = expiresAt;
+        payload.internal_note = reason || payload.internal_note || beforeData?.internal_note || null;
+      }
+      const allowed = pick(payload, ['full_name', 'name', 'email', 'phone', 'whatsapp', 'status', 'plan', 'payment_status', 'subscription_status', 'access_status', 'expires_at', 'plan_expires_at', 'company_id', 'internal_note', 'metadata']);
       allowed.updated_at = now;
       result = await patchById('agendapro_client_accounts', id, allowed);
       afterData = Array.isArray(result) ? result[0] : result;
-      auditDescription = 'Cliente atualizado pela Central Dev.';
+      severity = action === 'temporary_access' ? 'warning' : 'info';
+      auditDescription = action === 'temporary_access' ? 'Acesso temporário liberado pela Central Dev.' : 'Cliente atualizado pela Central Dev.';
     } else if (entity === 'company') {
       if (!id) return res.status(400).json({ ok: false, message: 'Informe a empresa.' });
       beforeData = await getOne('agendapro_companies', id);
-      const allowed = pick(payload, ['name', 'business_name', 'slug', 'public_slug', 'category', 'status', 'phone', 'whatsapp', 'email', 'address', 'description', 'plan', 'current_plan_id', 'subscription_status', 'plan_expires_at', 'onboarding_status', 'theme_color', 'metadata']);
+      if (action === 'temporary_access') {
+        const planId = payload.current_plan_id || payload.plan || beforeData?.current_plan_id || beforeData?.plan || 'professional';
+        const expiresAt = new Date(Date.now() + Number(payload.duration_days || 7) * 24 * 60 * 60 * 1000).toISOString();
+        payload.status = 'active';
+        payload.current_plan_id = planId;
+        payload.payment_status = 'approved_manual';
+        payload.subscription_status = 'active';
+        payload.access_status = 'active';
+        payload.plan_started_at = now;
+        payload.plan_expires_at = expiresAt;
+      }
+      const allowed = pick(payload, ['name', 'business_name', 'slug', 'public_slug', 'category', 'status', 'phone', 'whatsapp', 'email', 'address', 'description', 'plan', 'current_plan_id', 'payment_status', 'subscription_status', 'access_status', 'plan_started_at', 'plan_expires_at', 'onboarding_status', 'theme_color', 'metadata']);
       if (allowed.public_slug && !allowed.slug) allowed.slug = allowed.public_slug;
       allowed.updated_at = now;
       result = await patchById('agendapro_companies', id, allowed);
       afterData = Array.isArray(result) ? result[0] : result;
-      severity = ['suspended', 'cancelled'].includes(String(allowed.status || allowed.subscription_status)) ? 'warning' : 'info';
-      auditDescription = 'Empresa atualizada pela Central Dev.';
+      severity = action === 'temporary_access' || ['suspended', 'cancelled'].includes(String(allowed.status || allowed.subscription_status)) ? 'warning' : 'info';
+      auditDescription = action === 'temporary_access' ? 'Acesso temporário da empresa liberado pela Central Dev.' : 'Empresa atualizada pela Central Dev.';
     } else if (entity === 'agenda') {
       if (!id) return res.status(400).json({ ok: false, message: 'Informe a agenda.' });
       beforeData = await getOne('agendapro_created_agendas', id);
