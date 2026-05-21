@@ -3166,3 +3166,168 @@
 .public-privacy-note a:hover{
   text-decoration:underline;
 }
+
+/* AgendaPro v0.6.4.2 — Demo & Sales Mode */
+.plans-sales-hero .hero-actions,
+.demo-mode-hero .hero-actions{margin-top:1.35rem}
+.sales-benefit-grid,
+.demo-sales-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:1rem;
+}
+.sales-benefit-grid article,
+.demo-sales-grid article{
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:24px;
+  padding:1.15rem;
+  box-shadow:0 18px 55px rgba(15,23,42,.055);
+  min-width:0;
+}
+.sales-benefit-grid svg,
+.demo-sales-grid svg{color:#10b981}
+.sales-benefit-grid h3,
+.demo-sales-grid h3{margin:.85rem 0 .35rem;color:#0f172a}
+.sales-benefit-grid p,
+.demo-sales-grid p{margin:0;color:#64748b;line-height:1.58}
+.plan-comparison-section{
+  padding-top:1rem;
+}
+.plan-comparison-table{
+  width:100%;
+  border:1px solid var(--border);
+  border-radius:28px;
+  overflow:hidden;
+  background:#fff;
+  box-shadow:0 20px 60px rgba(15,23,42,.06);
+}
+.comparison-row{
+  display:grid;
+  grid-template-columns:1.25fr repeat(3,minmax(0,1fr));
+  gap:0;
+  border-top:1px solid var(--border);
+}
+.comparison-row:first-child{border-top:0}
+.comparison-row span,
+.comparison-row b{
+  padding:1rem;
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+.comparison-row span{color:#334155;font-weight:850}
+.comparison-row b{
+  color:#0f172a;
+  border-left:1px solid var(--border);
+}
+.comparison-head{
+  background:#0f172a;
+  color:#f8fafc;
+}
+.comparison-head span,
+.comparison-head b{color:#f8fafc}
+.sales-closing-cta,
+.demo-sales-final,
+.demo-sales-journey{
+  display:grid;
+  grid-template-columns:1.15fr .85fr;
+  align-items:center;
+  gap:1.2rem;
+  border-radius:32px;
+  padding:2rem;
+  background:linear-gradient(135deg,#0f172a,#1e3a8a 62%,#064e3b);
+  color:#f8fafc;
+  box-shadow:0 28px 90px rgba(15,23,42,.16);
+}
+.sales-closing-cta h2,
+.demo-sales-final h2,
+.demo-sales-journey h2{color:#fff}
+.sales-closing-cta p,
+.demo-sales-final p,
+.demo-sales-journey p{color:#dbeafe;line-height:1.65}
+.sales-closing-cta .btn.secondary,
+.demo-sales-final .btn.secondary,
+.demo-sales-journey .btn.secondary{
+  background:rgba(255,255,255,.1);
+  color:#fff;
+  border-color:rgba(255,255,255,.22);
+}
+.demo-mode-hero{
+  max-width:960px;
+}
+.demo-environment-alert{
+  display:grid;
+  grid-template-columns:auto 1fr;
+  gap:.85rem;
+  align-items:start;
+  max-width:980px;
+  margin:0 auto 1rem;
+  padding:1rem 1.1rem;
+  border:1px solid rgba(245,158,11,.3);
+  border-radius:24px;
+  background:#fffbeb;
+  color:#92400e;
+}
+.demo-environment-alert b,
+.demo-environment-alert span{display:block}
+.demo-environment-alert span{margin-top:.2rem;line-height:1.55}
+.demo-environment-alert svg{color:#f59e0b;flex:0 0 auto}
+.demo-sales-journey{
+  grid-template-columns:.75fr 1.25fr;
+  align-items:start;
+}
+.demo-journey-list{
+  display:grid;
+  gap:.75rem;
+}
+.demo-journey-list article{
+  display:grid;
+  grid-template-columns:54px 1fr;
+  gap:.85rem;
+  align-items:center;
+  background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:20px;
+  padding:.9rem;
+}
+.demo-journey-list b{
+  width:44px;
+  height:44px;
+  display:grid;
+  place-items:center;
+  border-radius:15px;
+  background:#10b981;
+  color:#052e2b;
+}
+.demo-journey-list strong,
+.demo-journey-list span{display:block}
+.demo-journey-list span{margin-top:.18rem;color:#dbeafe;line-height:1.45}
+.demo-preview-sales{
+  position:relative;
+  overflow:hidden;
+}
+.demo-preview-sales:after{
+  content:"";
+  position:absolute;
+  inset:auto 0 0;
+  height:2px;
+  background:linear-gradient(90deg,transparent,#10b981,transparent);
+}
+@media(max-width:1050px){
+  .sales-benefit-grid,
+  .demo-sales-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sales-closing-cta,
+  .demo-sales-final,
+  .demo-sales-journey{grid-template-columns:1fr}
+}
+@media(max-width:720px){
+  .sales-benefit-grid,
+  .demo-sales-grid,
+  .comparison-row{grid-template-columns:1fr}
+  .comparison-row b{border-left:0;border-top:1px solid var(--border)}
+  .comparison-head b{border-color:rgba(255,255,255,.14)}
+  .sales-closing-cta,
+  .demo-sales-final,
+  .demo-sales-journey{padding:1.25rem;border-radius:24px}
+  .demo-environment-alert{grid-template-columns:1fr}
+}

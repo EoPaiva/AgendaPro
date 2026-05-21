@@ -110,6 +110,38 @@ function getManualPaymentLinks(planId: string, includeImplementation = false): P
 }
 
 const demoExternalUrl = import.meta.env.VITE_AGENDAPRO_DEMO_URL || 'https://agendapro-demo.vercel.app/';
+const salesWhatsappMessage = 'Olá! Quero conhecer o AgendaPro, ver a demonstração e escolher o melhor plano para meu negócio.';
+const salesWhatsappUrl = `https://wa.me/?text=${encodeURIComponent(salesWhatsappMessage)}`;
+
+const demoSafetyCards: Array<[string, string, ComponentType<{ size?: number }>]> = [
+  ['Demo fora da produção', 'O botão principal abre a URL externa configurada para demonstração, mantendo o site principal limpo para contas reais.', ShieldCheck],
+  ['Dados fictícios isolados', 'Cenários, nomes e métricas da demo são tratados como amostra comercial e não entram como fallback da base real.', Database],
+  ['Roteiro de venda claro', 'O visitante entende o que testar: página pública, solicitação de horário, painel, planos e contratação.', ClipboardList],
+  ['Próximo passo visível', 'Depois da demo, o fluxo aponta para contratação, implantação assistida ou conversa pelo WhatsApp.', MessageSquareText]
+];
+
+const demoJourneySteps = [
+  ['01', 'Abrir demo externa', 'Acessar o deploy demonstrativo separado e validar a experiência sem usar dados reais.'],
+  ['02', 'Simular uma agenda', 'Ver serviços, profissionais, horários, resumo e solicitação pública guiada.'],
+  ['03', 'Avaliar o painel', 'Conferir dashboard, clientes, serviços, equipe, relatórios e comunicação.'],
+  ['04', 'Escolher plano', 'Voltar para o site principal e contratar com checkout, key ou implantação assistida.']
+];
+
+const salesBenefitCards: Array<[string, string, ComponentType<{ size?: number }>]> = [
+  ['Implantação simples', 'Conta, plano e criador guiado para publicar a primeira agenda sem depender de conhecimento técnico.', Rocket],
+  ['Operação profissional', 'Clientes, serviços, equipe, horários, permissões e página pública em um fluxo único.', UsersRound],
+  ['Venda com confiança', 'Planos, pagamento, Central Dev, auditoria e suporte preparados para operação SaaS real.', ShieldCheck],
+  ['Crescimento organizado', 'Relatórios, lista de espera, mensagens prontas e base para multiunidade conforme o negócio evolui.', BarChart3]
+];
+
+const planComparisonRows = [
+  { feature: 'Página pública de agendamento', essential: 'Sim', professional: 'Sim', business: 'Sim' },
+  { feature: 'Serviços e clientes', essential: 'Básico', professional: 'Completo', business: 'Completo' },
+  { feature: 'Equipe e profissionais', essential: '1 profissional', professional: 'Equipe', business: 'Equipe + permissões' },
+  { feature: 'Relatórios executivos', essential: 'Básicos', professional: 'Avançados', business: 'Avançados + operação' },
+  { feature: 'Multiunidade', essential: 'Não incluído', professional: 'Preparado', business: 'Incluído' },
+  { feature: 'Suporte e implantação', essential: 'Padrão', professional: 'Prioritário', business: 'Prioritário + assistido' }
+];
 
 type ClientAccount = {
   fullName: string;
@@ -1078,9 +1110,9 @@ function CommercialHome() {
         <h1>Agenda online profissional para negócios que vivem de horários marcados.</h1>
         <p>O AgendaPro centraliza agendamentos, clientes, serviços, equipe, comunicação, pagamentos e página pública em uma experiência simples para pessoas leigas e profissional para empresas em crescimento.</p>
         <div className="hero-actions">
-          <a className="btn primary" href={demoExternalUrl} target="_blank" rel="noopener noreferrer">Ver demonstração <ArrowRight size={18} /></a>
+          <a className="btn primary" href="#/demo">Ver demonstração <ArrowRight size={18} /></a>
           <a className="btn secondary" href="#/contratar">Contratar AgendaPro</a>
-          <a className="btn secondary" href={demoExternalUrl} target="_blank" rel="noopener noreferrer">Testar demo externa</a>
+          <a className="btn secondary" href={salesWhatsappUrl} target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>
         </div>
         <div className="trust-row">
           <span><CheckCircle2 /> Configuração guiada</span>
@@ -1122,16 +1154,16 @@ function CommercialHome() {
       </div>
     </section>
 
-    <section className="section demo-preview">
+    <section className="section demo-preview demo-preview-sales">
       <div>
         <span className="eyebrow"><BadgeCheck size={16} /> Demonstração aplicada</span>
-        <h2>Veja uma demonstração externa do AgendaPro.</h2>
-        <p>A demo completa fica em outro deploy, com dados fictícios isolados do ambiente principal.</p>
+        <h2>Veja a demo sem misturar teste com produção.</h2>
+        <p>A página de demonstração explica o ambiente, abre o deploy externo e mostra o caminho para contratar ou falar com suporte comercial.</p>
       </div>
       <div className="demo-actions">
-        <a className="btn primary" href={demoExternalUrl} target="_blank" rel="noopener noreferrer">Abrir demo externa</a>
-        <a className="btn secondary" href={demoExternalUrl} target="_blank" rel="noopener noreferrer">Ver página demo</a>
-        <a className="btn secondary" href="#/conta">Minha conta</a>
+        <a className="btn primary" href="#/demo">Ver demonstração</a>
+        <a className="btn secondary" href={demoExternalUrl} target="_blank" rel="noopener noreferrer">Abrir demo externa</a>
+        <a className="btn secondary" href="#/planos">Comparar planos</a>
       </div>
     </section>
 
@@ -1209,8 +1241,11 @@ function SegmentsPage() {
 
 function PlansPage() {
   return <PublicShell>
-    <section className="page-hero"><Badge tone="blue">Planos</Badge><h1>Comece simples e evolua conforme o negócio cresce.</h1><p>Todos os planos podem receber implantação assistida como adicional opcional.</p></section>
+    <section className="page-hero plans-sales-hero"><Badge tone="blue">Planos</Badge><h1>Comece simples e evolua conforme o negócio cresce.</h1><p>Todos os planos podem receber implantação assistida como adicional opcional. Se estiver comparando, abra a demo antes de contratar.</p><div className="hero-actions centered-actions"><a className="btn primary" href="#/checkout/professional">Contratar agora</a><a className="btn secondary" href="#/demo">Ver demonstração</a><a className="btn secondary" href={salesWhatsappUrl} target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a></div></section>
+    <section className="section sales-benefits-section"><div className="section-title"><span>Benefícios</span><h2>Uma compra simples para uma operação completa.</h2></div><div className="sales-benefit-grid">{salesBenefitCards.map(([title, description, Icon]) => <article key={title}><Icon size={24}/><h3>{title}</h3><p>{description}</p></article>)}</div></section>
     <section className="section pricing"><PlanCards /></section>
+    <PlanComparison />
+    <section className="section sales-closing-cta"><div><Badge tone="green">Próximo passo</Badge><h2>Quer validar antes de pagar?</h2><p>Abra a demonstração externa, veja o fluxo como cliente e volte para contratar com o plano certo.</p></div><div className="demo-actions"><a className="btn primary" href={demoExternalUrl} target="_blank" rel="noopener noreferrer">Abrir demo externa</a><a className="btn secondary" href={salesWhatsappUrl} target="_blank" rel="noopener noreferrer">Tirar dúvida no WhatsApp</a></div></section>
   </PublicShell>;
 }
 
@@ -1224,12 +1259,30 @@ function PlanCards({ compact = false }: { compact?: boolean }) {
     <strong className="plan-price-v3">{currency(plan.price)}<small>/mês</small></strong>
     <ul>{plan.features.map(feature => <li key={feature}><CheckCircle2 size={16} />{feature}</li>)}</ul>
     <a className="btn primary full" href={`#/checkout/${plan.id}`}>Contratar {plan.name}</a>
+    {!compact && <a className="btn secondary full" href={salesWhatsappUrl} target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>}
   </article>)}</div>;
+}
+
+function PlanComparison() {
+  return <section className="section plan-comparison-section">
+    <div className="section-title"><span>Comparativo</span><h2>Escolha pelo estágio da operação.</h2><p>O Essencial organiza a primeira presença online. O Profissional acelera rotina diária. O Empresa prepara equipe, permissões e multiunidade.</p></div>
+    <div className="plan-comparison-table" role="table" aria-label="Comparativo de planos AgendaPro">
+      <div className="comparison-row comparison-head" role="row"><span role="columnheader">Recurso</span><b role="columnheader">Essencial</b><b role="columnheader">Profissional</b><b role="columnheader">Empresa</b></div>
+      {planComparisonRows.map(row => <div className="comparison-row" role="row" key={row.feature}><span role="cell">{row.feature}</span><b role="cell">{row.essential}</b><b role="cell">{row.professional}</b><b role="cell">{row.business}</b></div>)}
+    </div>
+  </section>;
 }
 
 function DemoRedirectPage() {
   return <PublicShell>
-    <section className="page-hero"><Badge tone="purple">Demo externa</Badge><h1>A demonstração agora fica fora do site principal.</h1><p>O AgendaPro principal permanece como ambiente real de produção. A demo deve rodar em outro repositório, outro deploy e outro ambiente para não misturar dados fictícios com dados reais.</p><div className="hero-actions" style={{ justifyContent: 'center' }}><a className="btn primary" href={demoExternalUrl} target="_blank" rel="noopener noreferrer">Abrir demonstração externa</a><a className="btn secondary" href="#/planos">Voltar aos planos</a></div></section>
+    <section className="page-hero demo-mode-hero"><Badge tone="purple">Demo & Sales Mode</Badge><h1>Demonstração clara, isolada e pronta para venda.</h1><p>O site principal continua reservado para conta, contratação e operação real. A demo abre em uma URL externa, com dados fictícios separados e aviso visível de ambiente demonstrativo.</p><div className="hero-actions centered-actions"><a className="btn primary" href={demoExternalUrl} target="_blank" rel="noopener noreferrer">Abrir demonstração externa</a><a className="btn secondary" href="#/planos">Ver planos</a><a className="btn secondary" href={salesWhatsappUrl} target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a></div></section>
+    <section className="demo-environment-alert" aria-label="Aviso de ambiente demonstrativo"><AlertTriangle size={22}/><div><b>Ambiente demonstrativo</b><span>Não use dados reais na demo. Qualquer cenário exibido é amostra comercial e não deve ser misturado com clientes, agendas ou pagamentos reais.</span></div></section>
+    <section className="section demo-sales-grid">{demoSafetyCards.map(([title, description, Icon]) => <article key={title}><Icon size={24}/><h3>{title}</h3><p>{description}</p></article>)}</section>
+    <section className="section demo-sales-journey">
+      <div><span className="eyebrow"><ClipboardList size={15}/> Roteiro sugerido</span><h2>O que testar na demonstração.</h2><p>Use este roteiro para avaliar a jornada sem gravar dados fictícios no ambiente principal.</p></div>
+      <div className="demo-journey-list">{demoJourneySteps.map(([number, title, description]) => <article key={number}><b>{number}</b><div><strong>{title}</strong><span>{description}</span></div></article>)}</div>
+    </section>
+    <section className="section demo-sales-final"><div><Badge tone="green">Depois da demo</Badge><h2>Pronto para transformar em operação real?</h2><p>Contrate um plano, peça implantação assistida ou fale pelo WhatsApp para alinhar o melhor caminho para seu negócio.</p></div><div className="demo-actions"><a className="btn primary" href="#/contratar">Contratar AgendaPro</a><a className="btn secondary" href={salesWhatsappUrl} target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a></div></section>
   </PublicShell>;
 }
 
