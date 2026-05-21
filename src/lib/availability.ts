@@ -148,6 +148,168 @@ export function serviceDurationMinutes(service: any = {}) {
   return Math.max(10, numberFrom(service.durationMinutes || service.duration || service.minutes, 60));
 }
 
+export function serviceHasValidDuration(service: any = {}) {
+  const raw = service.durationMinutes ?? service.duration ?? service.minutes;
+  const parsed = Number(String(raw ?? '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(parsed) && parsed >= 10;
+}
+
+export function publicItemIsActive(item: any = {}) {
+  const status = String(item.status || '').toLowerCase();
+  return item.active !== false && !['inactive', 'inativo', 'paused', 'pausado', 'disabled'].includes(status);
+}
+
+export function activePublicItems<T extends Record<string, any>>(items: T[] = [], fallback: T[] = []) {
+  const hasSource = Array.isArray(items) && items.length > 0;
+  const source = hasSource ? items : fallback;
+  const active = source.filter((item: T) => publicItemIsActive(item));
+  return hasSource ? active : (active.length ? active : source);
+}
+
+function matchToken(value: any) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+    .trim();
+}
+
+function splitLinkText(value: string) {
+  return value.split(/[,;\n|]+/).map(item => item.trim()).filter(Boolean);
+}
+
+function linkedValues(value: any): string[] {
+  if (value == null || value === false) return [];
+  if (Array.isArray(value)) return value.flatMap((item: any) => linkedValues(item));
+  if (typeof value === 'object') {
+    return [value.id, value.name, value.title, value.label, value.email].filter(Boolean).map(item => String(item));
+  }
+  return splitLinkText(String(value));
+}
+
+function linkSet(values: any[]) {
+  return new Set(values.flatMap(value => linkedValues(value)).map(value => matchToken(value)).filter(Boolean));
+}
+
+function entityKeys(entity: any = {}) {
+  return linkSet([entity.id, entity.uid, entity.slug, entity.name, entity.title, entity.label, entity.email]);
+}
+
+function serviceProfessionalLinks(service: any = {}) {
+  return linkSet([
+    service.professionalIds,
+    service.professional_ids,
+    service.professionalId,
+    service.professional_id,
+    service.professionalNames,
+    service.professionals,
+    service.professionalsText,
+    service.teamIds,
+    service.team_ids,
+    service.teamNames,
+    service.team
+  ]);
+}
+
+function professionalServiceLinks(professional: any = {}) {
+  return linkSet([
+    professional.serviceIds,
+    professional.service_ids,
+    professional.serviceId,
+    professional.service_id,
+    professional.serviceNames,
+    professional.services,
+    professional.servicesText,
+    professional.serviceText
+  ]);
+}
+
+export function professionalMatchesService(professional: any = {}, service: any = {}) {
+  if (!professional || !service) return false;
+  const professionalKeys = entityKeys(professional);
+  const serviceKeys = entityKeys(service);
+  const serviceLinks = serviceProfessionalLinks(service);
+  const professionalLinks = professionalServiceLinks(professional);
+  const serviceRequiresProfessional = serviceLinks.size > 0;
+  const professionalRequiresService = professionalLinks.size > 0;
+  if (serviceRequiresProfessional && !Array.from(professionalKeys).some(key => serviceLinks.has(key))) return false;
+  if (professionalRequiresService && !Array.from(serviceKeys).some(key => professionalLinks.has(key))) return false;
+  return true;
+}
+
+export function teamForService<T extends Record<string, any>>(team: T[] = [], service: any = {}) {
+  return activePublicItems(team).filter((member: T) => professionalMatchesService(member, service));
+}
+
+function hasScheduleData(value: any) {
+  return Boolean(value && typeof value === 'object' && (
+    value.workingDays ||
+    value.blockedDates ||
+    value.blockedTimes ||
+    value.slotInterval ||
+    value.minAdvanceHours ||
+    value.maxFutureDays ||
+    value.acceptNewBookings === false ||
+    value.paused === true
+  ));
+}
+
+function uniqueScheduleItems(items: any[]) {
+  const seen = new Set<string>();
+  return items.filter((item: any) => {
+    const key = JSON.stringify(item || {});
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function professionalScheduleConfig(baseConfig: Partial<ScheduleConfig> = {}, professional: any = {}) {
+  const candidate =
+    professional.scheduleConfig ||
+    professional.schedule_config ||
+    professional.availability?.scheduleConfig ||
+    professional.availability?.schedule_config ||
+    professional.availability ||
+    professional.schedule;
+  const base = normalizeScheduleConfig(baseConfig);
+  if (!hasScheduleData(candidate)) return base;
+  return normalizeScheduleConfig({
+    ...base,
+    ...candidate,
+    workingDays: candidate.workingDays ? { ...base.workingDays, ...candidate.workingDays } : base.workingDays,
+    blockedDates: uniqueScheduleItems([...(base.blockedDates || []), ...(Array.isArray(candidate.blockedDates) ? candidate.blockedDates : [])]),
+    blockedTimes: uniqueScheduleItems([...(base.blockedTimes || []), ...(Array.isArray(candidate.blockedTimes) ? candidate.blockedTimes : [])])
+  });
+}
+
+export function scheduleHasEnabledPeriod(configInput?: Partial<ScheduleConfig>) {
+  const config = normalizeScheduleConfig(configInput);
+  return DAY_KEYS.some(key => Boolean(config.workingDays?.[key]?.enabled && (config.workingDays[key]?.periods || []).some(period => period.start && period.end)));
+}
+
+export function appointmentMatchesProfessional(appointment: AvailabilityAppointment, professional: any = {}) {
+  const professionalKeys = entityKeys(professional);
+  if (!professionalKeys.size) return true;
+  const appointmentLinks = linkSet([
+    (appointment as any).professional_id,
+    (appointment as any).professionalId,
+    (appointment as any).professional_name,
+    (appointment as any).professionalName,
+    appointment.metadata?.professional_id,
+    appointment.metadata?.professionalId,
+    appointment.metadata?.professional_name,
+    appointment.metadata?.professionalName
+  ]);
+  if (!appointmentLinks.size) return true;
+  return Array.from(professionalKeys).some(key => appointmentLinks.has(key));
+}
+
+export function appointmentsForProfessional<T extends AvailabilityAppointment>(appointments: T[] = [], professional: any = {}) {
+  return (Array.isArray(appointments) ? appointments : []).filter((appointment: T) => appointmentMatchesProfessional(appointment, professional));
+}
+
 export function normalizeBookingStatus(status?: string) {
   const value = String(status || 'pending').toLowerCase();
   if (['confirmado', 'confirmed', 'approved', 'aprovado'].includes(value)) return 'confirmed';

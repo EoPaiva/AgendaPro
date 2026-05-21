@@ -4,7 +4,7 @@ import { Badge } from '../components/Badge';
 import { useApp } from '../contexts/AppContext';
 import { Appointment, Client } from '../types';
 import { currency, uid } from '../utils/format';
-import { DAY_KEYS, DAY_LABELS, buildDateOptions, dateKey, generateSlotsForDate, normalizeScheduleConfig, serviceDurationMinutes } from '../lib/availability';
+import { DAY_KEYS, DAY_LABELS, activePublicItems, appointmentsForProfessional, buildDateOptions, dateKey, generateSlotsForDate, normalizeScheduleConfig, professionalScheduleConfig, serviceDurationMinutes, teamForService } from '../lib/availability';
 import { friendlyErrorMessage } from '../lib/errors';
 
 const demoExternalUrl = import.meta.env.VITE_AGENDAPRO_DEMO_URL || 'https://agendapro-demo.vercel.app/';
@@ -239,30 +239,38 @@ function LocalAgendaBooking({ agenda }: { agenda: any }) {
   const [success, setSuccess] = useState(false);
   const [lastRequest, setLastRequest] = useState<any | null>(null);
 
-  const services = normalizeActiveList(Array.isArray(agenda.services) ? agenda.services : [], [{ id: 'service_1', name: 'Atendimento inicial', description: 'Atendimento profissional com horário marcado.', durationMinutes: 60, price: 0, active: true }]);
-  const team = normalizeActiveList(Array.isArray(agenda.team) ? agenda.team : [], [{ id: 'team_1', name: agenda.business?.name || 'Equipe responsável', role: 'Atendimento', specialty: agenda.business?.segment || 'Serviços com horário marcado' }]);
+  const services = activePublicItems(Array.isArray(agenda.services) ? agenda.services : [], [{ id: 'service_1', name: 'Atendimento inicial', description: 'Atendimento profissional com horário marcado.', durationMinutes: 60, price: 0, active: true }]);
+  const team = activePublicItems(Array.isArray(agenda.team) ? agenda.team : [], [{ id: 'team_1', name: agenda.business?.name || 'Equipe responsável', role: 'Atendimento', specialty: agenda.business?.segment || 'Serviços com horário marcado' }]);
   const service = services[Math.min(serviceIndex, Math.max(services.length - 1, 0))] || services[0];
-  const professional = team[Math.min(professionalIndex, Math.max(team.length - 1, 0))] || team[0];
+  const compatibleTeam = useMemo(() => teamForService(team, service), [team, service]);
+  const professional = compatibleTeam[Math.min(professionalIndex, Math.max(compatibleTeam.length - 1, 0))] || compatibleTeam[0];
   const durationMinutes = serviceDurationMinutes(service);
-  const scheduleConfig = useMemo(() => normalizeScheduleConfig(agenda.scheduleConfig, agenda.hours, agenda.rules), [agenda]);
+  const baseScheduleConfig = useMemo(() => normalizeScheduleConfig(agenda.scheduleConfig, agenda.hours, agenda.rules), [agenda]);
+  const scheduleConfig = useMemo(() => professionalScheduleConfig(baseScheduleConfig, professional), [baseScheduleConfig, professional]);
   const bookedSlots = Array.isArray(agenda.bookedSlots) ? agenda.bookedSlots : [];
+  const professionalBookedSlots = useMemo(() => appointmentsForProfessional(bookedSlots, professional), [bookedSlots, professional]);
   const dateOptions = useMemo(() => buildDateOptions(scheduleConfig, 18), [scheduleConfig]);
   const validDateOptions = dateOptions.filter(item => item.availableDay).slice(0, 14);
-  const slots = useMemo(() => generateSlotsForDate({ date: selectedDate, serviceDuration: durationMinutes, appointments: bookedSlots, scheduleConfig }), [selectedDate, durationMinutes, bookedSlots, scheduleConfig]);
+  const slots = useMemo(() => professional ? generateSlotsForDate({ date: selectedDate, serviceDuration: durationMinutes, appointments: professionalBookedSlots, scheduleConfig }) : [], [selectedDate, durationMinutes, professionalBookedSlots, scheduleConfig, professional]);
   const publicUrl = `${window.location.origin}${window.location.pathname}#/agendar/${agenda.slug}`;
   const presentationUrl = `${window.location.origin}${window.location.pathname}#/agenda/${agenda.slug}`;
   const whatsappHref = whatsAppLink(agenda.business?.whatsapp, `Olá! Vim pela página de agendamento da ${agenda.business?.name}. Gostaria de tirar uma dúvida.`);
-  const nextSlot = nextAvailableLabel(dateOptions, services, bookedSlots, scheduleConfig);
+  const nextSlot = services.length && professional ? nextAvailableLabel(dateOptions, service ? [service] : services, professionalBookedSlots, scheduleConfig) : 'Sem serviço disponível';
   const openNow = isOpenNow(scheduleConfig);
 
   useEffect(() => { document.title = `${agenda.business?.name || 'Agenda'} — Agendamento Online`; }, [agenda.business?.name]);
-  useEffect(() => { setTime(''); }, [selectedDate, serviceIndex, professionalIndex]);
+  useEffect(() => { setProfessionalIndex(0); setTime(''); }, [serviceIndex]);
+  useEffect(() => { setTime(''); }, [selectedDate, professionalIndex]);
+  useEffect(() => {
+    if (!validDateOptions.length) return;
+    if (!validDateOptions.some(item => item.date === selectedDate)) setSelectedDate(validDateOptions[0].date);
+  }, [validDateOptions, selectedDate]);
 
   const selectedSlot = slots.find(slot => slot.time === time);
   const availableSlots = slots.filter(slot => slot.available).slice(0, 4);
   const bookingDisabled = Boolean(agenda.publicBookingDisabled);
   const disabledReason = agenda.accessState?.message || 'Esta agenda está temporariamente indisponível para novos agendamentos.';
-  const canSend = Boolean(!bookingDisabled && form.name.trim() && form.phone.trim() && selectedDate && time && service);
+  const canSend = Boolean(!bookingDisabled && form.name.trim() && form.phone.trim() && selectedDate && time && service && professional);
   const bookingProgress = getBookingProgress({ service: Boolean(service), professional: Boolean(professional), date: Boolean(selectedDate), time: Boolean(time), name: Boolean(form.name.trim()), phone: Boolean(form.phone.trim()) });
   const bookingSummary = { serviceName: service?.name || 'Serviço', professionalName: professional?.name || 'Equipe', date: selectedDate, time: time || availableSlots[0]?.time || '', name: form.name || 'Cliente' };
   const buildPublicConfirmationMessage = (data: any) => `Olá! Acabei de solicitar um agendamento em ${agenda.business?.name || 'AgendaPro'}.
@@ -284,6 +292,10 @@ Aguardo a confirmação.`;
   const request = async () => {
     if (bookingDisabled) {
       pushToast({ tone: 'warning', title: 'Agenda indisponível', message: disabledReason });
+      return;
+    }
+    if (!professional) {
+      pushToast({ tone: 'warning', title: 'Profissional indisponível', message: 'Este serviço ainda não tem profissional compatível ativo.' });
       return;
     }
     if (!canSend) {
@@ -397,12 +409,12 @@ Aguardo a confirmação.`;
             {agenda.business?.whatsapp && lastRequest && <a className="btn secondary full" href={whatsAppLink(agenda.business.whatsapp, buildPublicConfirmationMessage(lastRequest))} target="_blank" rel="noopener noreferrer">Enviar mensagem pelo WhatsApp</a>}
             <button className="btn primary full" type="button" onClick={() => setSuccess(false)}>Fazer outro agendamento</button>
           </div> : <>
-            <div className="luxury-stepper"><span className="active">1 Serviço</span><span className={team.length ? 'active' : ''}>2 Profissional</span><span className={selectedDate ? 'active' : ''}>3 Data</span><span className={time ? 'active' : ''}>4 Horário</span><span className={canSend ? 'active' : ''}>5 Revisão</span></div>
+            <div className="luxury-stepper"><span className="active">1 Serviço</span><span className={professional ? 'active' : ''}>2 Profissional</span><span className={selectedDate ? 'active' : ''}>3 Data</span><span className={time ? 'active' : ''}>4 Horário</span><span className={canSend ? 'active' : ''}>5 Revisão</span></div>
             <div className="luxury-section-heading"><span>Etapa 1</span><h2>Escolha o serviço</h2><p>Selecione o atendimento desejado para calcular duração, disponibilidade e valor.</p></div>
-            <div className="luxury-service-grid">{services.map((item: any, index: number) => <button key={item.id || item.name || index} type="button" className={serviceIndex === index ? 'selected' : ''} onClick={() => setServiceIndex(index)}><b>{item.name || 'Atendimento'}</b><small>{item.description || item.category || 'Serviço disponível para agendamento online.'}</small><span><Clock size={14}/>{serviceDurationMinutes(item)} min</span><strong>{servicePriceLabel(item)}</strong></button>)}</div>
+            <div className="luxury-service-grid">{services.length ? services.map((item: any, index: number) => <button key={item.id || item.name || index} type="button" className={serviceIndex === index ? 'selected' : ''} onClick={() => { setServiceIndex(index); setProfessionalIndex(0); setTime(''); }}><b>{item.name || 'Atendimento'}</b><small>{item.description || item.category || 'Serviço disponível para agendamento online.'}</small><span><Clock size={14}/>{serviceDurationMinutes(item)} min</span><strong>{servicePriceLabel(item)}</strong></button>) : <div className="empty-availability luxury-empty-state"><CalendarDays/><b>Nenhum serviço ativo.</b><span>Fale com a empresa pelo WhatsApp para confirmar a disponibilidade.</span></div>}</div>
 
-            <div className="luxury-section-heading"><span>Etapa 2</span><h2>Profissional</h2><p>{team.length > 1 ? 'Escolha quem realizará o atendimento.' : 'Profissional responsável pré-selecionado.'}</p></div>
-            <div className="luxury-professional-grid">{team.map((member: any, index: number) => <button key={member.id || member.name || index} type="button" className={professionalIndex === index ? 'selected' : ''} onClick={() => setProfessionalIndex(index)}><span>{String(member.name || 'P').slice(0, 2).toUpperCase()}</span><b>{member.name || 'Profissional'}</b><small>{member.role || member.specialty || 'Atendimento'}</small></button>)}</div>
+            <div className="luxury-section-heading"><span>Etapa 2</span><h2>Profissional</h2><p>{compatibleTeam.length > 1 ? 'Escolha quem realizará o atendimento.' : compatibleTeam.length ? 'Profissional responsável pré-selecionado.' : 'Nenhum profissional ativo está vinculado a este serviço.'}</p></div>
+            {compatibleTeam.length ? <div className="luxury-professional-grid">{compatibleTeam.map((member: any, index: number) => <button key={member.id || member.name || index} type="button" className={professionalIndex === index ? 'selected' : ''} onClick={() => setProfessionalIndex(index)}><span>{String(member.name || 'P').slice(0, 2).toUpperCase()}</span><b>{member.name || 'Profissional'}</b><small>{member.role || member.specialty || 'Atendimento'}</small></button>)}</div> : <div className="empty-availability luxury-empty-state"><CalendarDays/><b>Serviço sem profissional disponível.</b><span>Escolha outro serviço ou fale com a empresa pelo WhatsApp para confirmar atendimento.</span></div>}
 
             <div className="luxury-section-heading"><span>Etapa 3</span><h2>Data</h2><p>Mostramos apenas datas dentro da janela de agendamento configurada pelo estabelecimento.</p></div>
             <div className="luxury-date-strip">{dateOptions.slice(0, 14).map(item => <button key={item.date} type="button" disabled={!item.availableDay} className={`${selectedDate === item.date ? 'selected' : ''} ${!item.availableDay ? 'muted' : ''}`} onClick={() => item.availableDay && setSelectedDate(item.date)}><b>{item.label}</b><span>{item.weekday}</span><small>{formatShortDate(item.date)}</small></button>)}</div>
@@ -411,7 +423,7 @@ Aguardo a confirmação.`;
             {slots.length ? <>
               <div className="luxury-time-grid">{slots.map(slot => <button key={slot.time} disabled={!slot.available} title={slot.reason} type="button" className={`${time === slot.time ? 'selected' : ''} ${!slot.available ? `disabled ${slot.status}` : ''}`} onClick={() => slot.available && setTime(slot.time)}><b>{slot.time}</b><small>{slot.available ? 'Disponível' : slot.status === 'occupied' ? 'Ocupado' : slot.status === 'blocked' ? 'Bloqueado' : 'Indisponível'}</small></button>)}</div>
               {availableSlots.length > 0 && <div className="smart-slot-suggestions"><span>Horários recomendados</span>{availableSlots.map(slot => <button key={`smart-${slot.time}`} type="button" className={time === slot.time ? 'selected' : ''} onClick={() => setTime(slot.time)}>{slot.time}</button>)}</div>}
-            </> : <div className="empty-availability luxury-empty-state"><CalendarDays/><b>Não há horários disponíveis nesta data.</b><span>{scheduleConfig.closedMessage || 'Escolha outro dia ou fale com a empresa pelo WhatsApp.'}</span></div>}
+            </> : <div className="empty-availability luxury-empty-state"><CalendarDays/><b>{professional ? 'Não há horários disponíveis nesta data.' : 'Escolha um profissional para ver horários.'}</b><span>{professional ? (scheduleConfig.closedMessage || 'Escolha outro dia ou fale com a empresa pelo WhatsApp.') : 'Este serviço precisa de um profissional ativo compatível.'}</span></div>}
 
             <div className="luxury-section-heading"><span>Etapa 5</span><h2>Seus dados</h2><p>Seus dados serão usados apenas para confirmar o agendamento.</p></div>
             <div className="luxury-form-grid"><input className="field" placeholder="Nome completo" value={form.name} onChange={e => setForm({...form,name:e.target.value})}/><input className="field" placeholder="WhatsApp" value={form.phone} onChange={e => setForm({...form,phone:formatWhatsappInput(e.target.value)})}/><input className="field" placeholder="E-mail opcional" value={form.email} onChange={e => setForm({...form,email:e.target.value})}/><textarea className="field" placeholder="Observação opcional" value={form.notes} onChange={e => setForm({...form,notes:e.target.value})}/></div>
@@ -422,10 +434,10 @@ Aguardo a confirmação.`;
         {!success && <aside className="luxury-summary-card">
           <span className="luxury-status-chip">Resumo</span>
           <h3>Revise sua solicitação</h3>
-          <div className="luxury-summary-list"><p><b>Serviço</b><span>{service?.name || 'Selecione'}</span></p><p><b>Profissional</b><span>{professional?.name || 'Equipe'}</span></p><p><b>Data</b><span>{selectedDate ? formatDateLabel(selectedDate) : 'Escolha uma data'}</span></p><p><b>Horário</b><span>{time || 'Escolha um horário'}</span></p><p><b>Duração</b><span>{durationMinutes} minutos</span></p><p><b>Valor</b><span>{servicePriceLabel(service)}</span></p></div>
+          <div className="luxury-summary-list"><p><b>Serviço</b><span>{service?.name || 'Selecione'}</span></p><p><b>Profissional</b><span>{professional?.name || 'Sem compatível'}</span></p><p><b>Data</b><span>{selectedDate ? formatDateLabel(selectedDate) : 'Escolha uma data'}</span></p><p><b>Horário</b><span>{time || 'Escolha um horário'}</span></p><p><b>Duração</b><span>{durationMinutes} minutos</span></p><p><b>Valor</b><span>{servicePriceLabel(service)}</span></p></div>
           <div className="booking-readiness-card">
             <b>{canSend ? 'Tudo pronto para enviar' : 'Complete os dados pendentes'}</b>
-            <span>{canSend ? 'A empresa receberá serviço, profissional, data, horário e contato.' : 'O botão libera quando nome, WhatsApp e horário estiverem preenchidos.'}</span>
+            <span>{canSend ? 'A empresa receberá serviço, profissional, data, horário e contato.' : !professional ? 'Escolha um serviço com profissional ativo compatível.' : 'O botão libera quando nome, WhatsApp e horário estiverem preenchidos.'}</span>
           </div>
           <button className="btn primary full" onClick={request} disabled={!canSend}>{bookingDisabled ? 'Agenda indisponível' : 'Confirmar solicitação'}</button>
           {agenda.business?.whatsapp && time && form.name && <a className="btn secondary full" href={whatsAppLink(agenda.business.whatsapp, buildWhatsAppReminder(bookingSummary))} target="_blank" rel="noopener noreferrer">Tirar dúvida no WhatsApp</a>}

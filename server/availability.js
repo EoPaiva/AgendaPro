@@ -92,6 +92,166 @@ function serviceDuration(service = {}) {
   return numberFrom(service.durationMinutes || service.duration || service.minutes, 60);
 }
 
+function serviceHasValidDuration(service = {}) {
+  const raw = service.durationMinutes ?? service.duration ?? service.minutes;
+  const parsed = Number(String(raw ?? '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(parsed) && parsed >= 10;
+}
+
+function publicItemIsActive(item = {}) {
+  const status = String(item.status || '').toLowerCase();
+  return item.active !== false && !['inactive', 'inativo', 'paused', 'pausado', 'disabled'].includes(status);
+}
+
+function activePublicItems(items = [], fallback = []) {
+  const hasSource = Array.isArray(items) && items.length > 0;
+  const source = hasSource ? items : fallback;
+  const active = source.filter(item => publicItemIsActive(item));
+  return hasSource ? active : (active.length ? active : source);
+}
+
+function matchToken(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+    .trim();
+}
+
+function splitLinkText(value) {
+  return String(value || '').split(/[,;\n|]+/).map(item => item.trim()).filter(Boolean);
+}
+
+function linkedValues(value) {
+  if (value == null || value === false) return [];
+  if (Array.isArray(value)) return value.flatMap(item => linkedValues(item));
+  if (typeof value === 'object') {
+    return [value.id, value.name, value.title, value.label, value.email].filter(Boolean).map(item => String(item));
+  }
+  return splitLinkText(String(value));
+}
+
+function linkSet(values) {
+  return new Set((values || []).flatMap(value => linkedValues(value)).map(value => matchToken(value)).filter(Boolean));
+}
+
+function entityKeys(entity = {}) {
+  return linkSet([entity.id, entity.uid, entity.slug, entity.name, entity.title, entity.label, entity.email]);
+}
+
+function serviceProfessionalLinks(service = {}) {
+  return linkSet([
+    service.professionalIds,
+    service.professional_ids,
+    service.professionalId,
+    service.professional_id,
+    service.professionalNames,
+    service.professionals,
+    service.professionalsText,
+    service.teamIds,
+    service.team_ids,
+    service.teamNames,
+    service.team
+  ]);
+}
+
+function professionalServiceLinks(professional = {}) {
+  return linkSet([
+    professional.serviceIds,
+    professional.service_ids,
+    professional.serviceId,
+    professional.service_id,
+    professional.serviceNames,
+    professional.services,
+    professional.servicesText,
+    professional.serviceText
+  ]);
+}
+
+function professionalMatchesService(professional = {}, service = {}) {
+  if (!professional || !service) return false;
+  const professionalKeys = entityKeys(professional);
+  const serviceKeys = entityKeys(service);
+  const serviceLinks = serviceProfessionalLinks(service);
+  const professionalLinks = professionalServiceLinks(professional);
+  if (serviceLinks.size && !Array.from(professionalKeys).some(key => serviceLinks.has(key))) return false;
+  if (professionalLinks.size && !Array.from(serviceKeys).some(key => professionalLinks.has(key))) return false;
+  return true;
+}
+
+function teamForService(team = [], service = {}) {
+  return activePublicItems(team).filter(member => professionalMatchesService(member, service));
+}
+
+function hasScheduleData(value) {
+  return Boolean(value && typeof value === 'object' && (
+    value.workingDays ||
+    value.blockedDates ||
+    value.blockedTimes ||
+    value.slotInterval ||
+    value.minAdvanceHours ||
+    value.maxFutureDays ||
+    value.acceptNewBookings === false ||
+    value.paused === true
+  ));
+}
+
+function uniqueScheduleItems(items) {
+  const seen = new Set();
+  return (items || []).filter(item => {
+    const key = JSON.stringify(item || {});
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function professionalScheduleConfig(baseConfig = {}, professional = {}) {
+  const candidate =
+    professional.scheduleConfig ||
+    professional.schedule_config ||
+    (professional.availability && (professional.availability.scheduleConfig || professional.availability.schedule_config)) ||
+    professional.availability ||
+    professional.schedule;
+  const base = normalizeScheduleConfig(baseConfig);
+  if (!hasScheduleData(candidate)) return base;
+  return normalizeScheduleConfig({
+    ...base,
+    ...candidate,
+    workingDays: candidate.workingDays ? { ...base.workingDays, ...candidate.workingDays } : base.workingDays,
+    blockedDates: uniqueScheduleItems([...(base.blockedDates || []), ...(Array.isArray(candidate.blockedDates) ? candidate.blockedDates : [])]),
+    blockedTimes: uniqueScheduleItems([...(base.blockedTimes || []), ...(Array.isArray(candidate.blockedTimes) ? candidate.blockedTimes : [])])
+  });
+}
+
+function scheduleHasEnabledPeriod(configInput = {}) {
+  const config = normalizeScheduleConfig(configInput);
+  return DAY_KEYS.some(key => Boolean(config.workingDays && config.workingDays[key] && config.workingDays[key].enabled && (config.workingDays[key].periods || []).some(period => period.start && period.end)));
+}
+
+function appointmentMatchesProfessional(appointment = {}, professional = {}) {
+  const professionalKeys = entityKeys(professional);
+  if (!professionalKeys.size) return true;
+  const metadata = appointment.metadata || {};
+  const appointmentLinks = linkSet([
+    appointment.professional_id,
+    appointment.professionalId,
+    appointment.professional_name,
+    appointment.professionalName,
+    metadata.professional_id,
+    metadata.professionalId,
+    metadata.professional_name,
+    metadata.professionalName
+  ]);
+  if (!appointmentLinks.size) return true;
+  return Array.from(professionalKeys).some(key => appointmentLinks.has(key));
+}
+
+function appointmentsForProfessional(appointments = [], professional = {}) {
+  return (Array.isArray(appointments) ? appointments : []).filter(appointment => appointmentMatchesProfessional(appointment, professional));
+}
+
 function normalizeStatus(status) {
   const value = String(status || 'requested').toLowerCase();
   if (['confirmado', 'confirmed', 'approved', 'aprovado'].includes(value)) return 'confirmed';
@@ -154,4 +314,4 @@ function isTimeSlotAvailable({ date, startTime, serviceDuration = 60, appointmen
   return { available: true, reason: 'Disponível', status: 'available', endTime: toTime(start + Number(serviceDuration)) };
 }
 
-module.exports = { toMinutes, toTime, dateKey, weekdayKey, normalizeScheduleConfig, serviceDuration, normalizeStatus, occupiesSlot, appointmentRange, isTimeSlotAvailable };
+module.exports = { toMinutes, toTime, dateKey, weekdayKey, normalizeScheduleConfig, serviceDuration, serviceHasValidDuration, publicItemIsActive, activePublicItems, professionalMatchesService, teamForService, professionalScheduleConfig, scheduleHasEnabledPeriod, appointmentMatchesProfessional, appointmentsForProfessional, normalizeStatus, occupiesSlot, appointmentRange, isTimeSlotAvailable };

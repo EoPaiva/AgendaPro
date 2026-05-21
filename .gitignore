@@ -48,6 +48,8 @@ desktop.ini
 *.7z
 
 # Scripts locais Windows
+*.cmd
+*.bat
 AgendaPro_PUSH_LIMPO_V*.cmd
 agendapro-safe-update-push*.cmd
 subir-agendapro-github.cmd
