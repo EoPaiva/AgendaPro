@@ -1268,7 +1268,10 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
   const [statusFilter, setStatusFilter] = useState('todos');
   const [clientStatusFilter, setClientStatusFilter] = useState<'all' | 'new' | 'active' | 'recurring' | 'vip' | 'no_return' | 'inactive'>('all');
   const [clientTagFilter, setClientTagFilter] = useState('all');
-  const [reportPeriod, setReportPeriod] = useState<'today' | '7d' | '30d' | 'all'>('30d');
+  const [reportPeriod, setReportPeriod] = useState<'today' | '7d' | '30d' | 'month' | 'previous' | 'all'>('30d');
+  const [reportServiceFilter, setReportServiceFilter] = useState('all');
+  const [reportProfessionalFilter, setReportProfessionalFilter] = useState('all');
+  const [reportStatusFilter, setReportStatusFilter] = useState('all');
   const [localServices, setLocalServices] = useState<any[]>(services);
   const [localTeam, setLocalTeam] = useState<any[]>(team);
   useEffect(() => { setLocalServices(services); }, [JSON.stringify(services)]);
@@ -1654,44 +1657,100 @@ Qualquer dúvida, estamos à disposição.`;
   ];
 
   const appointmentDateValue = (item: any) => String(item.requested_date || item.date || item.created_at?.slice?.(0, 10) || '').slice(0, 10);
+  const serviceNameOf = (item: any) => String(item.service_name || item.metadata?.serviceName || primaryService || 'Atendimento');
+  const professionalNameOf = (item: any) => String(item.professional_name || item.metadata?.professionalName || 'Equipe');
   const periodStart = (() => {
     const now = new Date();
     if (reportPeriod === 'today') return todayKey;
     if (reportPeriod === '7d') { const date = new Date(now); date.setDate(date.getDate() - 6); return date.toISOString().slice(0, 10); }
     if (reportPeriod === '30d') { const date = new Date(now); date.setDate(date.getDate() - 29); return date.toISOString().slice(0, 10); }
+    if (reportPeriod === 'month') return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    if (reportPeriod === 'previous') return new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
     return '';
   })();
-  const reportAppointments = appointments.filter(item => {
+  const periodEnd = (() => {
+    const now = new Date();
+    if (reportPeriod === 'previous') return new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
+    return todayKey;
+  })();
+  const periodAppointments = appointments.filter(item => {
     if (reportPeriod === 'all') return true;
     const value = appointmentDateValue(item);
-    return Boolean(value && value >= periodStart && value <= todayKey);
+    return Boolean(value && value >= periodStart && value <= periodEnd);
+  });
+  const reportServiceOptions = ['all', ...Array.from(new Set(periodAppointments.map(serviceNameOf).filter(Boolean)))];
+  const reportProfessionalOptions = ['all', ...Array.from(new Set(periodAppointments.map(professionalNameOf).filter(Boolean)))];
+  const reportStatusOptions = ['all', ...Array.from(new Set(periodAppointments.map(item => cleanStatus(item.status)).filter(Boolean)))];
+  const reportAppointments = periodAppointments.filter(item => {
+    const byService = reportServiceFilter === 'all' || serviceNameOf(item) === reportServiceFilter;
+    const byProfessional = reportProfessionalFilter === 'all' || professionalNameOf(item) === reportProfessionalFilter;
+    const byStatus = reportStatusFilter === 'all' || cleanStatus(item.status) === reportStatusFilter;
+    return byService && byProfessional && byStatus;
   });
   const reportPending = reportAppointments.filter(item => cleanStatus(item.status) === 'pending');
   const reportConfirmed = reportAppointments.filter(item => cleanStatus(item.status) === 'confirmed');
   const reportCompleted = reportAppointments.filter(item => cleanStatus(item.status) === 'completed');
   const reportCancelled = reportAppointments.filter(item => cleanStatus(item.status) === 'cancelled');
   const reportRescheduled = reportAppointments.filter(item => cleanStatus(item.status) === 'rescheduled');
+  const reportAbsent = reportAppointments.filter(item => cleanStatus(item.status) === 'absent');
   const reportActive = reportAppointments.filter(item => !['cancelled', 'refused', 'absent'].includes(cleanStatus(item.status)));
   const reportClients = Array.from(new Map(reportAppointments.map((item, index) => [item.customer_phone || item.customer_whatsapp || item.customer_email || item.customer_name || `cliente-${index}`, item])).values());
   const reportRevenue = reportActive.reduce((sum, item) => sum + Number(item.value || item.price || baseServicePrice || 0), 0);
   const reportConfirmationRate = Math.round(((reportConfirmed.length + reportCompleted.length) / Math.max(reportAppointments.length, 1)) * 100);
   const reportCancelRate = Math.round((reportCancelled.length / Math.max(reportAppointments.length, 1)) * 100);
-  const reportOccupation = Math.min(100, Math.round((reportActive.length / Math.max((services.length || 1) * (reportPeriod === 'today' ? 6 : reportPeriod === '7d' ? 28 : reportPeriod === '30d' ? 120 : 180), 1)) * 100));
+  const reportAttendanceRate = Math.round((reportCompleted.length / Math.max(reportCompleted.length + reportAbsent.length, 1)) * 100);
+  const reportAverageTicket = Math.round(reportRevenue / Math.max(reportActive.length, 1));
+  const reportCapacity = reportPeriod === 'today' ? 6 : reportPeriod === '7d' ? 28 : ['30d','month','previous'].includes(reportPeriod) ? 120 : 180;
+  const reportOccupation = Math.min(100, Math.round((reportActive.length / Math.max((services.length || 1) * reportCapacity, 1)) * 100));
   const countBy = (items: any[], getter: (item: any) => string) => Object.entries(items.reduce((acc: Record<string, number>, item) => {
     const key = getter(item) || 'Não informado';
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {})).sort((a, b) => b[1] - a[1]);
-  const servicesRank = countBy(reportAppointments, item => String(item.service_name || item.metadata?.serviceName || primaryService || 'Atendimento'));
+  const sumBy = (items: any[], getter: (item: any) => string, valueGetter: (item: any) => number) => Object.entries(items.reduce((acc: Record<string, number>, item) => {
+    const key = getter(item) || 'Não informado';
+    acc[key] = (acc[key] || 0) + valueGetter(item);
+    return acc;
+  }, {})).sort((a, b) => b[1] - a[1]);
+  const servicesRank = countBy(reportAppointments, serviceNameOf);
+  const servicesRevenueRank = sumBy(reportActive, serviceNameOf, item => Number(item.value || item.price || baseServicePrice || 0));
+  const professionalsRank = countBy(reportAppointments, professionalNameOf);
   const hoursRank = countBy(reportAppointments, item => String(item.requested_time || item.time || '--:--'));
+  const daysRank = countBy(reportAppointments, item => {
+    const value = appointmentDateValue(item);
+    return value ? new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR', { weekday: 'short' }) : 'Sem data';
+  });
   const statusesRank = [
-    ['Pendentes', reportPending.length], ['Confirmados', reportConfirmed.length], ['Concluídos', reportCompleted.length], ['Cancelados', reportCancelled.length], ['Remarcados', reportRescheduled.length]
+    ['Pendentes', reportPending.length], ['Confirmados', reportConfirmed.length], ['Concluídos', reportCompleted.length], ['Cancelados', reportCancelled.length], ['Remarcados', reportRescheduled.length], ['Faltas', reportAbsent.length]
   ] as Array<[string, number]>;
+  const reportClientGroups = Array.from(reportAppointments.reduce((acc: Map<string, any[]>, item: any, index: number) => {
+    const key = String(item.customer_phone || item.customer_whatsapp || item.customer_email || item.customer_name || `cliente-${index}`);
+    acc.set(key, [...(acc.get(key) || []), item]);
+    return acc;
+  }, new Map<string, any[]>()).values());
+  const reportDaysSince = (value?: string) => {
+    if (!value) return 9999;
+    const date = new Date(`${value}T12:00:00`);
+    return Number.isFinite(date.getTime()) ? Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000)) : 9999;
+  };
+  const reportRecurringClients = reportClientGroups.filter(group => group.length > 1).length;
+  const reportNoReturnClients = reportClientGroups.filter(group => group.length === 1 && reportDaysSince(appointmentDateValue(group[0])) > 30).length;
   const topService = servicesRank[0]?.[0] || 'Sem dados ainda';
   const topHour = hoursRank[0]?.[0] || '--:--';
-  const periodLabel = reportPeriod === 'today' ? 'Hoje' : reportPeriod === '7d' ? 'Últimos 7 dias' : reportPeriod === '30d' ? 'Últimos 30 dias' : 'Todo o histórico';
+  const topDay = daysRank[0]?.[0] || 'Sem dados';
+  const periodLabel = reportPeriod === 'today' ? 'Hoje' : reportPeriod === '7d' ? 'Últimos 7 dias' : reportPeriod === '30d' ? 'Últimos 30 dias' : reportPeriod === 'month' ? 'Este mês' : reportPeriod === 'previous' ? 'Mês anterior' : 'Todo o histórico';
+  const executiveReportText = `${periodLabel}: sua agenda teve ${reportAppointments.length} solicitação(ões). O serviço mais procurado foi ${topService}. A taxa de cancelamento está em ${reportCancelRate}%. O melhor horário foi ${topHour}.`;
+  const heatmapHours = ['08','09','10','11','12','13','14','15','16','17','18'];
+  const heatmapDays = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+  const heatmapValue = (dayLabel: string, hour: string) => reportAppointments.filter(item => {
+    const date = appointmentDateValue(item);
+    const day = date ? new Date(`${date}T12:00:00`).toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '') : '';
+    return day.toLowerCase().startsWith(dayLabel.slice(0, 3).toLowerCase()) && String(item.requested_time || item.time || '').startsWith(hour);
+  }).length;
+  const heatmapMax = Math.max(1, ...heatmapDays.flatMap(day => heatmapHours.map(hour => heatmapValue(day, hour))));
   const reportSummary = {
     periodo: periodLabel,
+    filtros: { servico: reportServiceFilter, profissional: reportProfessionalFilter, status: reportStatusFilter },
     agenda: businessName,
     geradoEm: new Date().toISOString(),
     totalAgendamentos: reportAppointments.length,
@@ -1700,20 +1759,42 @@ Qualquer dúvida, estamos à disposição.`;
     concluidos: reportCompleted.length,
     cancelados: reportCancelled.length,
     remarcados: reportRescheduled.length,
+    faltas: reportAbsent.length,
     clientesUnicos: reportClients.length,
+    clientesRecorrentes: reportRecurringClients,
+    clientesSemRetorno: reportNoReturnClients,
     receitaEstimada: reportRevenue,
+    ticketMedioEstimado: reportAverageTicket,
     taxaConfirmacao: reportConfirmationRate,
     taxaCancelamento: reportCancelRate,
+    taxaComparecimento: reportAttendanceRate,
     ocupacaoEstimada: reportOccupation,
     servicoMaisSolicitado: topService,
-    horarioMaisProcurado: topHour
+    servicoMaisLucrativo: servicesRevenueRank[0]?.[0] || 'Sem dados ainda',
+    profissionalMaisSolicitado: professionalsRank[0]?.[0] || 'Sem dados ainda',
+    horarioMaisProcurado: topHour,
+    diaMaisForte: topDay,
+    resumoExecutivo: executiveReportText
   };
   const exportReport = async (format: 'txt' | 'json') => {
     const text = format === 'json'
       ? JSON.stringify(reportSummary, null, 2)
-      : `AgendaPro — Relatório básico\nAgenda: ${businessName}\nPeríodo: ${periodLabel}\nGerado em: ${new Date().toLocaleString('pt-BR')}\n\nAgendamentos: ${reportAppointments.length}\nConfirmados: ${reportConfirmed.length}\nPendentes: ${reportPending.length}\nConcluídos: ${reportCompleted.length}\nCancelados: ${reportCancelled.length}\nRemarcados: ${reportRescheduled.length}\nClientes únicos: ${reportClients.length}\nReceita estimada: ${currency(reportRevenue)}\nTaxa de confirmação: ${reportConfirmationRate}%\nTaxa de cancelamento: ${reportCancelRate}%\nOcupação estimada: ${reportOccupation}%\nServiço mais solicitado: ${topService}\nHorário mais procurado: ${topHour}`;
+      : `AgendaPro — Relatório executivo\nAgenda: ${businessName}\nPeríodo: ${periodLabel}\nGerado em: ${new Date().toLocaleString('pt-BR')}\n\n${executiveReportText}\n\nAgendamentos: ${reportAppointments.length}\nConfirmados: ${reportConfirmed.length}\nPendentes: ${reportPending.length}\nConcluídos: ${reportCompleted.length}\nCancelados: ${reportCancelled.length}\nRemarcados: ${reportRescheduled.length}\nFaltas: ${reportAbsent.length}\nClientes únicos: ${reportClients.length}\nClientes recorrentes: ${reportRecurringClients}\nClientes sem retorno: ${reportNoReturnClients}\nReceita estimada: ${currency(reportRevenue)}\nTicket médio estimado: ${currency(reportAverageTicket)}\nTaxa de confirmação: ${reportConfirmationRate}%\nTaxa de cancelamento: ${reportCancelRate}%\nTaxa de comparecimento: ${reportAttendanceRate}%\nOcupação estimada: ${reportOccupation}%\nServiço mais solicitado: ${topService}\nServiço mais lucrativo: ${servicesRevenueRank[0]?.[0] || 'Sem dados ainda'}\nProfissional mais solicitado: ${professionalsRank[0]?.[0] || 'Sem dados ainda'}\nHorário mais procurado: ${topHour}\nDia mais forte: ${topDay}`;
     await navigator.clipboard?.writeText(text);
     pushToast({ tone: 'success', title: format === 'json' ? 'JSON copiado' : 'Resumo copiado', message: 'Relatório copiado para a área de transferência.' });
+  };
+  const downloadReportCsv = () => {
+    const header = ['data','hora','cliente','servico','profissional','status','valor'];
+    const rows = reportAppointments.map(item => [appointmentDateValue(item), item.requested_time || item.time || '', item.customer_name || item.name || '', serviceNameOf(item), professionalNameOf(item), cleanStatus(item.status), String(item.value || item.price || baseServicePrice || 0)]);
+    const csv = [header, ...rows].map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `agendapro-relatorio-${slug}-${reportPeriod}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    pushToast({ tone: 'success', title: 'CSV gerado', message: 'Arquivo simples de relatório baixado.' });
   };
 
   const normalizeContact = (value: any) => String(value || '').replace(/\D/g, '');
@@ -2120,13 +2201,19 @@ Qualquer dúvida, estamos à disposição.`;
         <div className="reports-hero-card">
           <div className="reports-hero-bg" aria-hidden="true"><svg viewBox="0 0 520 220"><path d="M16 170 C120 70 190 210 285 96 S430 36 504 118"/><path d="M22 188 C136 115 186 156 270 132 S400 78 500 46"/></svg></div>
           <div><Badge tone="purple">Relatórios</Badge><h3>Inteligência básica da agenda</h3><p>Dados calculados a partir dos agendamentos reais carregados no painel. Sem inventar números: quando não houver dados, o painel mostra estados vazios e próximos passos.</p></div>
-          <div className="report-period-actions"><select value={reportPeriod} onChange={event => setReportPeriod(event.target.value as any)}><option value="today">Hoje</option><option value="7d">Últimos 7 dias</option><option value="30d">Últimos 30 dias</option><option value="all">Tudo</option></select><button onClick={() => exportReport('txt')}><Download size={16}/> TXT</button><button onClick={() => exportReport('json')}><Database size={16}/> JSON</button></div>
+          <div className="report-period-actions"><select value={reportPeriod} onChange={event => setReportPeriod(event.target.value as any)}><option value="today">Hoje</option><option value="7d">Últimos 7 dias</option><option value="30d">Últimos 30 dias</option><option value="month">Este mês</option><option value="previous">Mês anterior</option><option value="all">Tudo</option></select><select value={reportServiceFilter} onChange={event => setReportServiceFilter(event.target.value)}><option value="all">Todos os serviços</option>{reportServiceOptions.filter(item => item !== 'all').map(item => <option key={item} value={item}>{item}</option>)}</select><select value={reportProfessionalFilter} onChange={event => setReportProfessionalFilter(event.target.value)}><option value="all">Todos os profissionais</option>{reportProfessionalOptions.filter(item => item !== 'all').map(item => <option key={item} value={item}>{item}</option>)}</select><select value={reportStatusFilter} onChange={event => setReportStatusFilter(event.target.value)}><option value="all">Todos os status</option>{reportStatusOptions.filter(item => item !== 'all').map(item => <option key={item} value={item}>{bookingStatusLabel(item)}</option>)}</select><button onClick={() => exportReport('txt')}><Download size={16}/> TXT</button><button onClick={() => exportReport('json')}><Database size={16}/> JSON</button><button onClick={downloadReportCsv}><FileText size={16}/> CSV</button></div>
         </div>
         <div className="reports-kpi-grid">
           <article><CalendarCheck/><span>Total</span><b>{reportAppointments.length}</b><small>{periodLabel}</small></article>
           <article><BadgeCheck/><span>Confirmados</span><b>{reportConfirmed.length}</b><small>{reportConfirmationRate}% de confirmação</small></article>
           <article><Clock3/><span>Pendentes</span><b>{reportPending.length}</b><small>precisam de ação</small></article>
           <article><CreditCard/><span>Receita estimada</span><b>{currency(reportRevenue)}</b><small>baseada nos serviços</small></article>
+        </div>
+        <div className="reports-kpi-grid reports-kpi-grid-secondary">
+          <article><CheckCircle2/><span>Concluídos</span><b>{reportCompleted.length}</b><small>{reportAttendanceRate}% de comparecimento</small></article>
+          <article><AlertTriangle/><span>Cancelados</span><b>{reportCancelled.length}</b><small>{reportCancelRate}% no período</small></article>
+          <article><UsersRound/><span>Recorrentes</span><b>{reportRecurringClients}</b><small>{reportNoReturnClients} sem retorno</small></article>
+          <article><CreditCard/><span>Ticket médio</span><b>{currency(reportAverageTicket)}</b><small>estimado por atendimento ativo</small></article>
         </div>
         <div className="reports-insight-grid">
           <article className="reports-chart-card large"><div><Badge tone="green">Performance</Badge><h3>Status dos agendamentos</h3><p>Distribuição simples por status no período selecionado.</p></div><div className="status-bars-pro">{statusesRank.map(([label, value]) => <div key={label}><span>{label}<b>{value}</b></span><i style={{ width: `${Math.min(100, Math.round((value / Math.max(reportAppointments.length, 1)) * 100))}%` }}/></div>)}</div></article>
@@ -2137,6 +2224,15 @@ Qualquer dúvida, estamos à disposição.`;
           <article className="reports-chart-card"><Badge tone="purple">Serviços</Badge><h3>Mais solicitados</h3>{servicesRank.length ? <div className="rank-list-pro">{servicesRank.slice(0, 5).map(([label, value]) => <span key={label}><b>{label}</b><em>{value}</em></span>)}</div> : <div className="report-empty-mini">Nenhum serviço solicitado ainda.</div>}</article>
           <article className="reports-chart-card"><Badge tone="blue">Horários</Badge><h3>Maior procura</h3>{hoursRank.length ? <div className="rank-list-pro">{hoursRank.slice(0, 5).map(([label, value]) => <span key={label}><b>{label}</b><em>{value}</em></span>)}</div> : <div className="report-empty-mini">Nenhum horário registrado ainda.</div>}</article>
           <article className="reports-chart-card"><Badge tone="green">Resumo executivo</Badge><h3>Próximas ações</h3><ul className="real-action-list compact"><li><Clock size={17}/> {reportPending.length ? `Confirme ${reportPending.length} solicitação(ões) pendente(s).` : 'Sem pendências críticas no período.'}</li><li><UsersRound size={17}/> {reportClients.length} cliente(s) único(s) no período.</li><li><Sparkles size={17}/> Serviço em destaque: {topService}.</li><li><CalendarClock size={17}/> Horário com maior procura: {topHour}.</li></ul></article>
+        </div>
+        <div className="reports-insight-grid bottom">
+          <article className="reports-chart-card"><Badge tone="purple">Receita por serviço</Badge><h3>Mais lucrativos</h3>{servicesRevenueRank.length ? <div className="rank-list-pro">{servicesRevenueRank.slice(0, 5).map(([label, value]) => <span key={label}><b>{label}</b><em>{currency(Number(value))}</em></span>)}</div> : <div className="report-empty-mini">Sem receita estimada ainda.</div>}</article>
+          <article className="reports-chart-card"><Badge tone="blue">Profissionais</Badge><h3>Mais solicitados</h3>{professionalsRank.length ? <div className="rank-list-pro">{professionalsRank.slice(0, 5).map(([label, value]) => <span key={label}><b>{label}</b><em>{value}</em></span>)}</div> : <div className="report-empty-mini">Nenhum profissional registrado ainda.</div>}</article>
+          <article className="reports-chart-card"><Badge tone="amber">Dias fortes</Badge><h3>{topDay}</h3>{daysRank.length ? <div className="rank-list-pro">{daysRank.slice(0, 5).map(([label, value]) => <span key={label}><b>{label}</b><em>{value}</em></span>)}</div> : <div className="report-empty-mini">Sem datas no período.</div>}</article>
+        </div>
+        <div className="reports-insight-grid reports-advanced-grid">
+          <article className="reports-chart-card large"><Badge tone="green">Heatmap</Badge><h3>Procura por dia e horário</h3><p>Quanto mais forte o tom, maior o volume de solicitações naquele horário.</p><div className="report-heatmap"><span></span>{heatmapDays.map(day => <b key={day}>{day}</b>)}{heatmapHours.flatMap(hour => [<b key={`${hour}-label`}>{hour}h</b>, ...heatmapDays.map(day => { const value = heatmapValue(day, hour); return <i key={`${day}-${hour}`} style={{ opacity: Math.max(.12, value / heatmapMax) }} title={`${day} ${hour}h: ${value}`} />; })])}</div></article>
+          <article className="reports-chart-card"><Badge tone="blue">Resumo automático</Badge><h3>Executivo</h3><p>{executiveReportText}</p><button className="btn secondary full" onClick={() => exportReport('txt')}>Copiar resumo</button></article>
         </div>
       </section>}
 
