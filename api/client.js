@@ -26,6 +26,7 @@ const updatePublicBookingStatus = require('../server/endpoints/update-public-boo
 const updateScheduleConfig = require('../server/endpoints/update-schedule-config');
 const updateClientProfile = require('../server/endpoints/update-client-profile');
 const sendBookingMessage = require('../server/endpoints/send-booking-message');
+const clientSupport = require('../server/endpoints/client-support');
 
 module.exports = async function handler(req, res) {
   const action = getAction(req);
@@ -38,6 +39,7 @@ module.exports = async function handler(req, res) {
   if (action === 'update-schedule-config') return updateScheduleConfig(req, res);
   if (action === 'update-client-profile') return updateClientProfile(req, res);
   if (action === 'send-booking-message') return sendBookingMessage(req, res);
+  if (action === 'support' || action === 'client-support') return clientSupport(req, res);
 
   return notFound(res, action);
 };

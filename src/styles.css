@@ -3331,3 +3331,197 @@
   .demo-sales-journey{padding:1.25rem;border-radius:24px}
   .demo-environment-alert{grid-template-columns:1fr}
 }
+
+/* AgendaPro v0.6.4.3 — Support & Implementation Desk */
+.client-support-panel,
+.dev-support-desk{
+  display:grid;
+  gap:1rem;
+}
+.client-support-grid{
+  display:grid;
+  grid-template-columns:1.15fr .85fr;
+  gap:1rem;
+  align-items:start;
+}
+.client-support-form,
+.client-support-guide,
+.client-support-history-panel{
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:28px;
+  padding:1.2rem;
+  box-shadow:0 18px 55px rgba(15,23,42,.055);
+}
+.client-support-form h3,
+.client-support-guide h3,
+.client-support-history-panel h3{margin:.1rem 0 .7rem}
+.client-support-form textarea.field{
+  min-height:140px;
+  resize:vertical;
+}
+.client-support-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:.65rem;
+}
+.support-guide-list{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:.65rem;
+}
+.support-guide-list span{
+  display:block;
+  min-width:0;
+  background:#f8fafc;
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:.75rem;
+  color:#64748b;
+  overflow-wrap:anywhere;
+}
+.support-guide-list b{
+  display:block;
+  color:#0f172a;
+  margin-bottom:.2rem;
+}
+.client-support-guide p{
+  color:#64748b;
+  line-height:1.6;
+}
+.client-section-header.compact{
+  align-items:center;
+  padding:0;
+  box-shadow:none;
+  border:0;
+}
+.client-support-case-list{
+  display:grid;
+  gap:.8rem;
+}
+.client-support-case-list>article{
+  border:1px solid var(--border);
+  border-radius:22px;
+  padding:1rem;
+  background:#f8fafc;
+}
+.support-case-top,
+.support-case-meta,
+.support-admin-meta,
+.support-admin-actions{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:.5rem;
+}
+.support-case-top span{
+  color:#475569;
+  font-weight:900;
+}
+.support-case-meta span{
+  color:#64748b;
+  font-size:.9rem;
+}
+.support-public-history{
+  display:grid;
+  gap:.45rem;
+  margin-top:.75rem;
+}
+.support-public-history span{
+  display:grid;
+  gap:.2rem;
+  border-left:3px solid #10b981;
+  padding:.45rem .65rem;
+  background:#fff;
+  border-radius:12px;
+}
+.support-public-history small{color:#64748b}
+.dev-support-kpis{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:.85rem;
+}
+.dev-support-kpis article{
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:24px;
+  padding:1rem;
+  box-shadow:0 14px 40px rgba(15,23,42,.05);
+}
+.dev-support-kpis article.warning{border-color:#fde68a;background:#fffbeb}
+.dev-support-kpis article.danger{border-color:#fecaca;background:#fef2f2}
+.dev-support-kpis article.success{border-color:#bbf7d0;background:#f0fdf4}
+.dev-support-kpis svg{color:#10b981}
+.dev-support-kpis span,
+.dev-support-kpis b,
+.dev-support-kpis small{display:block}
+.dev-support-kpis span{
+  color:#64748b;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-weight:950;
+  font-size:.72rem;
+}
+.dev-support-kpis b{
+  margin:.35rem 0;
+  color:#0f172a;
+  font-size:1.45rem;
+}
+.support-case-admin-list{
+  display:grid;
+  gap:.75rem;
+}
+.support-case-admin-list>article{
+  border:1px solid var(--border);
+  border-radius:20px;
+  background:#f8fafc;
+  padding:.8rem;
+}
+.support-admin-main{
+  width:100%;
+  border:0;
+  background:transparent;
+  text-align:left;
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:.8rem;
+  align-items:start;
+  padding:0;
+}
+.support-admin-main b,
+.support-admin-main small,
+.support-admin-main em{display:block}
+.support-admin-main small{
+  color:#64748b;
+  margin-top:.2rem;
+  line-height:1.45;
+}
+.support-admin-main em{
+  color:#1d4ed8;
+  font-style:normal;
+  font-weight:950;
+}
+.support-admin-meta{
+  margin:.7rem 0;
+  color:#64748b;
+  font-size:.86rem;
+}
+.support-admin-actions button,
+.dev-card-title a{
+  border:1px solid #dbeafe;
+  background:#fff;
+  color:#1d4ed8;
+  border-radius:999px;
+  padding:.45rem .62rem;
+  font-weight:950;
+}
+@media(max-width:1050px){
+  .client-support-grid,
+  .dev-support-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:720px){
+  .client-support-grid,
+  .support-guide-list,
+  .dev-support-kpis,
+  .support-admin-main{grid-template-columns:1fr}
+}

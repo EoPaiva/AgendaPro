@@ -112,6 +112,8 @@ function getManualPaymentLinks(planId: string, includeImplementation = false): P
 const demoExternalUrl = import.meta.env.VITE_AGENDAPRO_DEMO_URL || 'https://agendapro-demo.vercel.app/';
 const salesWhatsappMessage = 'Olá! Quero conhecer o AgendaPro, ver a demonstração e escolher o melhor plano para meu negócio.';
 const salesWhatsappUrl = `https://wa.me/?text=${encodeURIComponent(salesWhatsappMessage)}`;
+const supportWhatsappMessage = 'Olá! Preciso de suporte ou implantação assistida no AgendaPro.';
+const supportWhatsappUrl = `https://wa.me/?text=${encodeURIComponent(supportWhatsappMessage)}`;
 
 const demoSafetyCards: Array<[string, string, ComponentType<{ size?: number }>]> = [
   ['Demo fora da produção', 'O botão principal abre a URL externa configurada para demonstração, mantendo o site principal limpo para contas reais.', ShieldCheck],
@@ -723,9 +725,9 @@ function getAgendaReadiness(agenda?: Partial<AgendaDraft> | null, account?: Clie
 }
 
 function statusTone(status?: string): 'blue' | 'green' | 'amber' | 'red' | 'slate' | 'purple' {
-  if (['approved', 'approved_manual', 'active', 'trial', 'published', 'finished', 'confirmed', 'completed', 'rescheduled', 'paid', 'available', 'resolved'].includes(String(status))) return 'green';
-  if (['rejected', 'cancelled', 'expired', 'suspended', 'revoked', 'disabled', 'failed', 'error', 'deleted'].includes(String(status))) return 'red';
-  if (['pending', 'manual_pending', 'pending_review', 'needs_adjustment', 'awaiting_briefing', 'building', 'draft', 'not_created', 'paused'].includes(String(status))) return 'amber';
+  if (['approved', 'approved_manual', 'active', 'trial', 'published', 'finished', 'confirmed', 'completed', 'rescheduled', 'paid', 'available', 'resolved', 'entregue', 'fechado'].includes(String(status))) return 'green';
+  if (['rejected', 'cancelled', 'expired', 'suspended', 'revoked', 'disabled', 'failed', 'error', 'deleted', 'problema'].includes(String(status))) return 'red';
+  if (['pending', 'manual_pending', 'pending_review', 'needs_adjustment', 'awaiting_briefing', 'building', 'draft', 'not_created', 'paused', 'open', 'em_atendimento', 'waiting_customer', 'aguardando_cliente', 'aguardando briefing', 'aguardando pagamento', 'configurando agenda', 'revisão interna'].includes(String(status))) return 'amber';
   return 'slate';
 }
 
@@ -772,7 +774,19 @@ function statusLabel(status?: string) {
     processed: 'Processado',
     resolved: 'Resolvido',
     converted: 'Convertido',
-    deleted: 'Arquivado'
+    deleted: 'Arquivado',
+    open: 'Aberto',
+    em_atendimento: 'Em atendimento',
+    waiting_customer: 'Aguardando cliente',
+    aguardando_cliente: 'Aguardando cliente',
+    fechado: 'Fechado',
+    problema: 'Problema',
+    'aguardando briefing': 'Aguardando briefing',
+    'aguardando pagamento': 'Aguardando pagamento',
+    'configurando agenda': 'Configurando agenda',
+    'revisão interna': 'Revisão interna',
+    publicado: 'Publicado',
+    entregue: 'Entregue'
   };
   return map[String(status || 'none')] || 'Pendente';
 }
@@ -1332,6 +1346,7 @@ function AccountRouter({ route }: { route: string }) {
   if (route.startsWith('/conta/painel')) return <ClientPortalPage />;
   if (route.startsWith('/conta/planos')) return <ClientPortalPage initialTab="plans" />;
   if (route.startsWith('/conta/pagamentos')) return <ClientPortalPage initialTab="payments" />;
+  if (route.startsWith('/conta/suporte') || route.startsWith('/conta/implantacao')) return <ClientPortalPage initialTab="support" />;
   if (route.startsWith('/conta/configuracao')) return <ClientPortalPage initialTab="settings" />;
   return <AccountEntryPage />;
 }
@@ -1430,7 +1445,7 @@ function ClientShell({ children, active = 'summary', setActive }: { children: Re
   const account = getStoredClient();
   const go = (tab: string) => setActive ? setActive(tab) : window.location.hash = tab === 'summary' ? '#/conta/painel' : `#/conta/${tab}`;
   const logout = () => { clearClientAuth(); window.location.hash = '#/conta/login'; };
-  const tabs = [['summary', 'Resumo'], ['plans', 'Planos'], ['payments', 'Pagamentos'], ['license', 'Licença / Key'], ['agenda', 'Criar agenda'], ['settings', 'Configurações']];
+  const tabs = [['summary', 'Resumo'], ['plans', 'Planos'], ['payments', 'Pagamentos'], ['license', 'Licença / Key'], ['agenda', 'Criar agenda'], ['support', 'Suporte'], ['settings', 'Configurações']];
   return <section className="client-console client-console-premium"><aside className="client-sidebar"><b>Central do Cliente</b><span>{account?.fullName || 'AgendaPro'}</span>{tabs.map(([id, label]) => <button key={id} type="button" onClick={() => go(id)} className={active === id ? 'active' : ''}>{label}</button>)}<button type="button" onClick={logout}>Sair</button></aside><main className="client-main">{children}</main></section>;
 }
 
@@ -2734,6 +2749,7 @@ function ClientPortalPage({ initialTab = 'summary' }: { initialTab?: string }) {
           <div className="client-focus-actions">
             {hasPublishedAgenda && isApproved ? <a className="btn primary" href={dashboardLink}>Gerenciar minha agenda</a> : isApproved ? <a className="btn primary" href="#/conta/criar-agenda">Criar minha agenda</a> : <a className="btn primary" href={access.actionHref}>{access.actionLabel}</a>}
             <button className="btn secondary" onClick={() => setActive('license')}>Ativar key</button>
+            <button className="btn secondary" onClick={() => setActive('support')}>Pedir suporte</button>
           </div>
         </article>
         <article className="client-links-card">
@@ -2751,6 +2767,7 @@ function ClientPortalPage({ initialTab = 'summary' }: { initialTab?: string }) {
     {active === 'payments' && <ClientPayments account={account} />}
     {active === 'license' && <LicenseActivation account={account} onActivated={activateLocalTrial} />}
     {active === 'agenda' && <AgendaStatusPanel account={account} />}
+    {active === 'support' && <ClientSupportDesk account={account} />}
     {active === 'settings' && <ClientSettings account={account} setAccount={setAccount} />}
   </ClientShell>;
 }
@@ -2833,6 +2850,103 @@ function ClientPayments({ account }: { account: ClientAccount }) {
     </div>
     <div className="plan-access-checklist">{access.checklist.map((item, index) => <span key={item}><b>{String(index + 1).padStart(2, '0')}</b>{item}</span>)}</div>
     <div className="client-inline-note"><CreditCard size={18}/><div><b>Pagamento manual</b><span>Ao usar link fixo do Mercado Pago, o cliente deve aguardar conferência e aprovação no painel do desenvolvedor.</span></div></div>
+  </section>;
+}
+
+function supportKindLabel(value: any) {
+  return String(value || '').toLowerCase() === 'implementation' ? 'Implantação assistida' : 'Suporte';
+}
+
+function supportPriorityLabel(value: any) {
+  const map: Record<string, string> = { low: 'Baixa', normal: 'Normal', high: 'Alta', urgent: 'Urgente' };
+  return map[String(value || 'normal').toLowerCase()] || 'Normal';
+}
+
+function ClientSupportDesk({ account }: { account: ClientAccount }) {
+  const { pushToast } = useApp();
+  const [cases, setCases] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [form, setForm] = useState({ type: 'support', priority: 'normal', title: '', description: '' });
+
+  const loadCases = async () => {
+    if (!getClientToken()) return;
+    setLoading(true);
+    try {
+      const response = await fetch('/api/client?action=support', { headers: { ...authHeaders() } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.ok) throw new Error(data?.message || 'Não foi possível carregar chamados.');
+      setCases(Array.isArray(data.cases) ? data.cases : []);
+    } catch (error) {
+      pushToast({ tone: 'warning', title: 'Suporte indisponível', message: friendlyErrorMessage(error, 'Tente novamente em instantes.', 'client') });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadCases(); }, []);
+
+  const submitCase = async (typeOverride?: string) => {
+    const type = typeOverride || form.type;
+    const title = form.title || (type === 'implementation' ? 'Solicitação de implantação assistida' : 'Solicitação de suporte');
+    if (!form.description.trim()) {
+      pushToast({ tone: 'warning', title: 'Descreva a solicitação', message: 'Explique em poucas linhas o que você precisa.' });
+      return;
+    }
+    setSending(true);
+    try {
+      const response = await fetch('/api/client?action=support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ ...form, type, title })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.ok) throw new Error(data?.message || 'Não foi possível abrir chamado.');
+      setCases(Array.isArray(data.cases) ? data.cases : data.case ? [data.case, ...cases] : cases);
+      setForm({ type: 'support', priority: 'normal', title: '', description: '' });
+      pushToast({ tone: 'success', title: type === 'implementation' ? 'Implantação solicitada' : 'Chamado aberto', message: 'A Central Dev recebeu sua solicitação.' });
+    } catch (error) {
+      pushToast({ tone: 'warning', title: 'Chamado não criado', message: friendlyErrorMessage(error, 'Tente novamente em instantes.', 'client') });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return <section className="client-tab-panel client-support-panel">
+    <div className="client-section-header">
+      <div><Badge tone="green">Suporte</Badge><h2>Suporte e implantação assistida</h2><p>Abra solicitações vinculadas à sua conta. A Central Dev vê prioridade, status, responsável e histórico interno; você acompanha apenas o status básico.</p></div>
+      <a className="btn secondary" href={supportWhatsappUrl} target="_blank" rel="noopener noreferrer">WhatsApp de suporte</a>
+    </div>
+    <div className="client-support-grid">
+      <article className="client-support-form">
+        <h3>Nova solicitação</h3>
+        <div className="checkout-form-grid">
+          <label><span>Tipo</span><select value={form.type} onChange={e => setForm(current => ({ ...current, type: e.target.value }))}><option value="support">Suporte</option><option value="implementation">Implantação assistida</option></select></label>
+          <label><span>Prioridade</span><select value={form.priority} onChange={e => setForm(current => ({ ...current, priority: e.target.value }))}><option value="low">Baixa</option><option value="normal">Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option></select></label>
+        </div>
+        <input className="field" value={form.title} onChange={e => setForm(current => ({ ...current, title: e.target.value }))} placeholder={form.type === 'implementation' ? 'Ex: Configurar minha primeira agenda' : 'Ex: Preciso ajustar meu plano'} />
+        <textarea className="field" value={form.description} onChange={e => setForm(current => ({ ...current, description: e.target.value }))} placeholder="Explique o que aconteceu, o que precisa ser feito ou quais dados faltam para a implantação." />
+        <div className="client-support-actions"><button className="btn primary" type="button" onClick={() => submitCase()} disabled={sending}>{sending ? 'Enviando...' : 'Abrir chamado'}</button><button className="btn secondary" type="button" onClick={() => setForm(current => ({ ...current, type: 'implementation', title: current.title || 'Solicitação de implantação assistida' }))}>Solicitar implantação assistida</button></div>
+      </article>
+      <article className="client-support-guide">
+        <h3>O que ajuda no atendimento</h3>
+        <div className="support-guide-list"><span><b>Conta</b>{account.email}</span><span><b>Negócio</b>{account.businessName}</span><span><b>Plano</b>{account.planName}</span><span><b>WhatsApp</b>{account.whatsapp || 'Não informado'}</span></div>
+        <p>Notas internas da Central Dev não aparecem aqui. O cliente vê somente status, prioridade, datas e retorno público quando houver.</p>
+      </article>
+    </div>
+    <div className="client-support-history-panel">
+      <div className="client-section-header compact"><div><h3>Meus chamados</h3><p>{loading ? 'Carregando solicitações...' : `${cases.length} solicitação(ões) vinculada(s) à conta.`}</p></div><button className="btn secondary compact" type="button" onClick={loadCases} disabled={loading}>{loading ? 'Atualizando...' : 'Atualizar'}</button></div>
+      <div className="client-support-case-list">
+        {cases.map((item: any) => <article key={item.id || item.title}>
+          <div className="support-case-top"><Badge tone={statusTone(item.status)}>{statusLabel(item.status)}</Badge><span>{supportKindLabel(item.type)}</span></div>
+          <h3>{item.title || 'Chamado AgendaPro'}</h3>
+          <p>{item.description || 'Sem descrição pública.'}</p>
+          <div className="support-case-meta"><span>Prioridade: <b>{supportPriorityLabel(item.priority)}</b></span><span>Aberto: <b>{formatDate(item.created_at)}</b></span><span>Atualizado: <b>{formatDate(item.updated_at)}</b></span></div>
+          <div className="support-public-history">{Array.isArray(item.history) && item.history.length ? item.history.map((event: any, index: number) => <span key={index}><b>{event.label || statusLabel(event.status)}</b><small>{event.at ? formatDate(event.at) : statusLabel(event.status)}</small></span>) : <span><b>Solicitação recebida</b><small>Aguardando movimentação da Central Dev.</small></span>}{item.resolution && <span><b>Retorno</b><small>{item.resolution}</small></span>}</div>
+        </article>)}
+        {!cases.length && <div className="dev-empty-state"><Headphones/><b>Nenhum chamado aberto</b><span>Use o formulário para solicitar suporte ou implantação assistida.</span></div>}
+      </div>
+    </div>
   </section>;
 }
 
@@ -3346,6 +3460,16 @@ function formatDate(value: any) {
   return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) + ' ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
+function supportCaseKindOf(row: any) {
+  const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+  const text = `${metadata.kind || ''} ${metadata.type || ''} ${row?.title || ''} ${row?.description || ''}`.toLowerCase();
+  return /implementation|implant/.test(text) ? 'implementation' : 'support';
+}
+
+function supportCaseIsImplementation(row: any) {
+  return supportCaseKindOf(row) === 'implementation';
+}
+
 
 type DevEditableField = {
   name: string;
@@ -3486,6 +3610,15 @@ function getDevEditFields(entity: string, item: any): DevEditableField[] {
     { name: 'resolution', label: 'Resolução / entrega', type: 'textarea' },
   ];
 
+  if (entity === 'support_case') return [
+    { name: 'title', label: 'Título', required: true },
+    { name: 'status', label: 'Status', type: 'select', options: [['open', 'Aberto'], ['em_atendimento', 'Em atendimento'], ['waiting_customer', 'Aguardando cliente'], ['resolved', 'Resolvido'], ['fechado', 'Fechado'], ['problema', 'Problema']] },
+    { name: 'priority', label: 'Prioridade', type: 'select', options: [['low', 'Baixa'], ['normal', 'Normal'], ['high', 'Alta'], ['urgent', 'Urgente']] },
+    { name: 'responsible_email', label: 'Responsável interno', type: 'email' },
+    { name: 'description', label: 'Descrição pública', type: 'textarea' },
+    { name: 'resolution', label: 'Retorno público', type: 'textarea' },
+  ];
+
   if (entity === 'plan') return [
     { name: 'id', label: 'ID do plano', disabled: true },
     { name: 'name', label: 'Nome do plano', required: true },
@@ -3541,6 +3674,9 @@ function normalizeCanonicalEntity(entity: string) {
     webhooks: 'webhook',
     briefings: 'briefing',
     implementations: 'implementation',
+    support: 'support_case',
+    support_cases: 'support_case',
+    support_case: 'support_case',
     settings: 'setting',
     plans: 'plan',
   };
@@ -3967,6 +4103,7 @@ function DeveloperConsolePage() {
   };
 
   const money = (value: any) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
+  const rawSupportCases = dashboard?.supportCases || dashboard?.implementations || [];
   const rows = {
     clients: dashboard?.clients || dashboard?.accounts || [],
     companies: dashboard?.companies || [],
@@ -3975,7 +4112,8 @@ function DeveloperConsolePage() {
     payments: dashboard?.payments || [],
     manual: dashboard?.manualPayments || dashboard?.manualPaymentRequests || [],
     briefings: dashboard?.briefings || [],
-    implementations: dashboard?.implementations || [],
+    implementations: rawSupportCases.filter((item: any) => supportCaseIsImplementation(item)),
+    supportCases: rawSupportCases.filter((item: any) => !supportCaseIsImplementation(item)),
     keys: dashboard?.keys || dashboard?.licenseKeys || [],
     webhooks: dashboard?.webhooks || dashboard?.webhookEvents || [],
     logs: dashboard?.logs || dashboard?.activityLogs || [],
@@ -4055,6 +4193,7 @@ function DeveloperConsolePage() {
     ...rows.keys.map((x: any) => ({ type: 'Key', title: x.label || x.plan_id || x.type || 'Key', subtitle: `${x.key_prefix || ''} ${x.status || ''}`, tab: 'keys', raw: x, entity: 'license_key' })),
     ...rows.briefings.map((x: any) => ({ type: 'Briefing', title: x.business_name || x.company_name || x.name || x.email, subtitle: x.status || x.email || '', tab: 'briefings', raw: x, entity: 'briefing' })),
     ...rows.implementations.map((x: any) => ({ type: 'Implantação', title: x.title || x.company_name || x.business_name, subtitle: x.status || x.priority || '', tab: 'implementations', raw: x, entity: 'implementation' })),
+    ...rows.supportCases.map((x: any) => ({ type: 'Chamado', title: x.title || x.company_name || x.business_name || 'Chamado de suporte', subtitle: `${x.status || ''} ${x.priority || ''}`, tab: 'support', raw: x, entity: 'support_case' })),
   ];
 
   const globalResults = searchPool.filter(item => {
@@ -4260,7 +4399,7 @@ function DeveloperConsolePage() {
     const slug = item.public_slug || item.slug || item.agenda_slug;
     return <div className="dev-actions">
       <button type="button" onClick={() => setSelected({ type: canonical, data: item })}>Detalhes</button>
-      {['client', 'company', 'agenda', 'payment', 'manual_payment', 'license_key', 'webhook', 'briefing', 'implementation'].includes(canonical) && <button type="button" onClick={() => openEdit(canonical, item)}>Editar</button>}
+      {['client', 'company', 'agenda', 'payment', 'manual_payment', 'license_key', 'webhook', 'briefing', 'implementation', 'support_case'].includes(canonical) && <button type="button" onClick={() => openEdit(canonical, item)}>Editar</button>}
       {canonical === 'client' && <><button type="button" onClick={() => openConfirm({ entity: 'client', action: 'activate', item, payload: { status: 'active', subscription_status: 'active' }, title: 'Ativar cliente', message: 'Ativar este cliente e marcar assinatura como ativa?', confirmLabel: 'Ativar' })}>Ativar</button><button type="button" onClick={() => openConfirm({ entity: 'client', action: 'temporary_access', item, payload: { duration_days: 7, plan: item.plan || item.current_plan_id || 'professional' }, title: 'Liberar acesso temporário', message: 'Liberar 7 dias de acesso temporário para este cliente?', confirmLabel: 'Liberar 7 dias', requireReason: true })}>7 dias</button><button type="button" onClick={() => openConfirm({ entity: 'client', action: 'suspend', item, payload: { status: 'suspended', subscription_status: 'suspended' }, title: 'Suspender cliente', message: 'Suspender este cliente?', confirmLabel: 'Suspender', requireReason: true, danger: true })}>Suspender</button></>}
       {canonical === 'company' && <><button type="button" onClick={() => openConfirm({ entity: 'company', action: 'activate', item, payload: { status: 'active', subscription_status: 'active' }, title: 'Ativar empresa', message: 'Ativar esta empresa?', confirmLabel: 'Ativar' })}>Ativar</button><button type="button" onClick={() => openConfirm({ entity: 'company', action: 'temporary_access', item, payload: { duration_days: 7, current_plan_id: item.current_plan_id || item.plan || 'professional' }, title: 'Liberar acesso temporário', message: 'Liberar 7 dias de acesso temporário para esta empresa?', confirmLabel: 'Liberar 7 dias', requireReason: true })}>7 dias</button><button type="button" onClick={() => openConfirm({ entity: 'company', action: 'suspend', item, payload: { status: 'suspended', subscription_status: 'suspended' }, title: 'Suspender empresa', message: 'Suspender esta empresa?', confirmLabel: 'Suspender', requireReason: true, danger: true })}>Suspender</button>{slug && <><button type="button" onClick={() => window.open(buildPublicLink(slug), '_blank')}>Página</button><button type="button" onClick={() => copy(buildBookingLink(slug), 'Link de agendamento')}>Copiar</button></>}</>}
       {canonical === 'agenda' && <>{slug && <><button type="button" onClick={() => window.open(buildPublicLink(slug), '_blank')}>Pública</button><button type="button" onClick={() => copy(buildBookingLink(slug), 'Link de agendamento')}>Copiar</button><button type="button" onClick={() => window.open(`#/conta/agenda/${slug}/dashboard`, '_blank')}>Dashboard</button></>}<button type="button" onClick={() => openConfirm({ entity: 'agenda', action: 'publish', item, payload: { status: 'published' }, title: 'Publicar agenda', message: 'Publicar esta agenda para acesso público?', confirmLabel: 'Publicar' })}>Publicar</button><button type="button" onClick={() => openConfirm({ entity: 'agenda', action: 'pause', item, payload: { status: 'paused' }, title: 'Pausar agenda', message: 'Pausar esta agenda e impedir novos agendamentos?', confirmLabel: 'Pausar', requireReason: true, danger: true })}>Pausar</button></>}
@@ -4271,6 +4410,7 @@ function DeveloperConsolePage() {
       {canonical === 'webhook' && <><button type="button" onClick={() => copy(JSON.stringify(item, null, 2), 'Payload')}>Copiar payload</button><button type="button" onClick={() => openConfirm({ entity: 'webhook', action: 'reprocess', item, payload: {}, title: 'Reprocessar webhook', message: 'Marcar este webhook para reprocessamento?', confirmLabel: 'Reprocessar' })}>Reprocessar</button><button type="button" onClick={() => openConfirm({ entity: 'webhook', action: 'resolve', item, payload: {}, title: 'Marcar como resolvido', message: 'Marcar este webhook como resolvido?', confirmLabel: 'Resolver' })}>Resolver</button></>}
       {canonical === 'briefing' && <button type="button" onClick={() => openConfirm({ entity: 'briefing', action: 'convert_to_implementation', item, payload: {}, title: 'Converter briefing', message: 'Converter este briefing em uma implantação?', confirmLabel: 'Converter' })}>Converter</button>}
       {canonical === 'implementation' && <button type="button" onClick={() => openConfirm({ entity: 'implementation', action: 'complete', item, payload: { status: 'completed' }, title: 'Concluir implantação', message: 'Marcar esta implantação como concluída?', confirmLabel: 'Concluir' })}>Concluir</button>}
+      {canonical === 'support_case' && <button type="button" onClick={() => openConfirm({ entity: 'support_case', action: 'resolve', item, payload: { status: 'resolved' }, title: 'Resolver chamado', message: 'Marcar este chamado como resolvido?', confirmLabel: 'Resolver' })}>Resolver</button>}
       {canonical === 'log' && <button type="button" onClick={() => copy(JSON.stringify(item.metadata || item, null, 2), 'Metadata')}>Copiar metadata</button>}
     </div>;
   };
@@ -4294,7 +4434,7 @@ function DeveloperConsolePage() {
     if (activeTab === 'briefings') return <DevKanban title="Briefings" description="Transforme briefings recebidos em implantações, empresas e agendas." items={rows.briefings} columns={['recebido', 'em análise', 'aguardando cliente', 'aprovado', 'converted']} openEdit={(item: any) => openEdit('briefing', item)} openDetails={(item: any) => setSelected({ type: 'Briefing', data: item })} onAction={(item: any) => openConfirm({ entity: 'briefing', action: 'convert_to_implementation', item, payload: {}, title: 'Converter briefing', message: 'Converter este briefing em implantação?', confirmLabel: 'Converter' })} />;
     if (activeTab === 'implementations') return <DevKanban title="Implantações" description="Esteira operacional de implantação assistida." items={rows.implementations} columns={['aguardando briefing', 'aguardando pagamento', 'configurando agenda', 'revisão interna', 'publicado', 'entregue', 'problema', 'completed']} openEdit={(item: any) => openEdit('implementation', item)} openDetails={(item: any) => setSelected({ type: 'Implantação', data: item })} onAction={(item: any) => openConfirm({ entity: 'implementation', action: 'complete', item, payload: { status: 'completed' }, title: 'Concluir implantação', message: 'Marcar esta implantação como concluída?', confirmLabel: 'Concluir' })} />;
     if (activeTab === 'plans') return <DevPlansPanel plans={adminPlans} money={money} openEdit={(item: any) => openEdit('plan', item, 'Editar plano')} />;
-    if (activeTab === 'support') return <DevSupport360 query={query} results={searchPool} open={(item: any) => setSelected(item)} edit={(item: any) => item.entity && openEdit(item.entity, item.raw)} copy={copy} />;
+    if (activeTab === 'support') return <DevSupportDesk cases={rows.supportCases} notes={rows.supportNotes} query={query} results={searchPool} open={(item: any) => setSelected(item)} edit={(item: any) => item.entity ? openEdit(item.entity, item.raw) : openEdit('support_case', item)} copy={copy} runAction={runAction} />;
     if (activeTab === 'settings') return <DevSettingsPanel settings={rows.settings} openEdit={(item: any) => openEdit('setting', item, 'Configurar item')} />;
     if (activeTab === 'health') return <DevHealthPanel metrics={metrics} rows={rows} isDemoLike={isDemoLike} setActiveTab={setActiveTab} />;
     if (activeTab === 'tools') return <DevToolsPanel copy={copy} />;
@@ -4517,9 +4657,46 @@ function DevOnboardingPanel({ rows, metrics, open, setActiveTab, exportRows, cop
   </div>;
 }
 
-function DevSupport360({ query, results, open, edit, copy }: { query: string; results: any[]; open: (item: any) => void; edit: (item: any) => void; copy: (text: string, label?: string) => void }) {
-  const visible = query.trim() ? results.slice(0, 20) : results.slice(0, 8);
-  return <div className="dev-panel-card"><div className="dev-card-title"><h3>Suporte 360º</h3><span>Busque qualquer cliente, empresa, agenda, pagamento ou slug e abra a visão completa.</span></div><div className="support-grid">{visible.map((item, index) => <article className="support-result-card" key={index}><button type="button" onClick={() => open(item)}><span>{item.type}</span><b>{item.title}</b><small>{item.subtitle || 'Sem detalhe'}</small></button><div><button type="button" onClick={() => edit(item)}>Editar</button>{item.raw?.whatsapp || item.raw?.phone || item.raw?.customer_phone ? <button type="button" onClick={() => window.open(`https://wa.me/${String(item.raw.whatsapp || item.raw.phone || item.raw.customer_phone).replace(/\D/g, '')}`, '_blank')}>WhatsApp</button> : null}{item.raw?.public_slug || item.raw?.slug || item.raw?.agenda_slug ? <button type="button" onClick={() => copy(`${window.location.origin}/#/agendar/${item.raw.public_slug || item.raw.slug || item.raw.agenda_slug}`, 'Link')}>Copiar link</button> : null}</div></article>)}{!visible.length && <div className="dev-empty-state"><Search/><b>Busque para iniciar atendimento</b><span>Digite nome, e-mail, WhatsApp, slug ou protocolo.</span></div>}</div></div>;
+function DevSupportDesk({ cases, notes, query, results, open, edit, copy, runAction }: { cases: any[]; notes: any[]; query: string; results: any[]; open: (item: any) => void; edit: (item: any) => void; copy: (text: string, label?: string) => void; runAction: (entity: string, action: string, item: any, payload?: any, reason?: string, successMessage?: string) => Promise<void> }) {
+  const visibleSearch = query.trim() ? results.slice(0, 20) : results.slice(0, 8);
+  const openCases = cases.filter((item: any) => !['resolved', 'fechado', 'completed', 'deleted'].includes(String(item.status || '').toLowerCase()));
+  const urgentCases = cases.filter((item: any) => ['urgent', 'high'].includes(String(item.priority || '').toLowerCase()));
+  const addInternalNote = (item: any) => {
+    const note = window.prompt('Nota interna do suporte');
+    if (!note) return;
+    runAction('support_note', 'create', item, { note, entity_type: 'support_case', entity_id: item.id, client_id: item.client_id || null, company_id: item.company_id || null, priority: item.priority || 'normal', status: item.status || 'open' }, note, 'Nota interna adicionada.');
+  };
+  const changeStatus = (item: any, status: string) => runAction('support_case', 'update', item, { status }, '', 'Status do chamado atualizado.');
+  const summary = cases.map((item: any) => `${item.title || 'Chamado'} | ${statusLabel(item.status)} | ${supportPriorityLabel(item.priority)} | ${formatDate(item.updated_at || item.created_at)}`).join('\n');
+
+  return <div className="dev-support-desk">
+    <section className="dev-support-kpis">
+      <article><Headphones/><span>Chamados</span><b>{cases.length}</b><small>solicitações de suporte</small></article>
+      <article className={openCases.length ? 'warning' : 'success'}><AlertTriangle/><span>Abertos</span><b>{openCases.length}</b><small>exigem ação</small></article>
+      <article className={urgentCases.length ? 'danger' : 'success'}><Zap/><span>Alta prioridade</span><b>{urgentCases.length}</b><small>urgente ou alta</small></article>
+      <article><FileText/><span>Notas internas</span><b>{notes.length}</b><small>não aparecem ao cliente</small></article>
+    </section>
+    <section className="dev-grid-2">
+      <div className="dev-panel-card">
+        <div className="dev-card-title"><div><h3>Chamados de suporte</h3><span>Cliente vê status básico. Notas internas ficam apenas na Central Dev.</span></div><div><button type="button" onClick={() => copy(summary, 'Resumo de suporte')}>Copiar resumo</button><a href={supportWhatsappUrl} target="_blank" rel="noopener noreferrer">WhatsApp suporte</a></div></div>
+        <div className="support-case-admin-list">
+          {cases.map((item: any) => <article key={item.id || item.title}>
+            <button type="button" className="support-admin-main" onClick={() => open({ type: 'Chamado', entity: 'support_case', raw: item })}>
+              <span><b>{item.title || 'Chamado AgendaPro'}</b><small>{item.description || 'Sem descrição'}</small></span>
+              <em>{statusLabel(item.status)} · {supportPriorityLabel(item.priority)}</em>
+            </button>
+            <div className="support-admin-meta"><span>Atualizado: {formatDate(item.updated_at || item.created_at)}</span><span>Responsável: {item.responsible_email || 'não definido'}</span></div>
+            <div className="support-admin-actions"><button type="button" onClick={() => edit({ entity: 'support_case', raw: item })}>Editar</button><button type="button" onClick={() => addInternalNote(item)}>Nota interna</button><button type="button" onClick={() => changeStatus(item, 'em_atendimento')}>Em atendimento</button><button type="button" onClick={() => changeStatus(item, 'waiting_customer')}>Aguardar cliente</button><button type="button" onClick={() => changeStatus(item, 'resolved')}>Resolver</button></div>
+          </article>)}
+          {!cases.length && <div className="dev-empty-state"><Headphones/><b>Nenhum chamado criado</b><span>Solicitações abertas pelo cliente aparecerão aqui.</span></div>}
+        </div>
+      </div>
+      <div className="dev-panel-card">
+        <div className="dev-card-title"><h3>Busca 360º</h3><span>Encontre cliente, empresa, agenda, pagamento ou slug.</span></div>
+        <div className="support-grid">{visibleSearch.map((item, index) => <article className="support-result-card" key={index}><button type="button" onClick={() => open(item)}><span>{item.type}</span><b>{item.title}</b><small>{item.subtitle || 'Sem detalhe'}</small></button><div><button type="button" onClick={() => edit(item)}>Editar</button>{item.raw?.whatsapp || item.raw?.phone || item.raw?.customer_phone ? <button type="button" onClick={() => window.open(`https://wa.me/${String(item.raw.whatsapp || item.raw.phone || item.raw.customer_phone).replace(/\D/g, '')}`, '_blank')}>WhatsApp</button> : null}{item.raw?.public_slug || item.raw?.slug || item.raw?.agenda_slug ? <button type="button" onClick={() => copy(`${window.location.origin}/#/agendar/${item.raw.public_slug || item.raw.slug || item.raw.agenda_slug}`, 'Link')}>Copiar link</button> : null}</div></article>)}{!visibleSearch.length && <div className="dev-empty-state"><Search/><b>Busque para iniciar atendimento</b><span>Digite nome, e-mail, WhatsApp, slug ou protocolo.</span></div>}</div>
+      </div>
+    </section>
+  </div>;
 }
 
 function DevSettingsPanel({ settings, openEdit }: { settings: any[]; openEdit: (item: any) => void }) {
@@ -4565,9 +4742,9 @@ function DetailDrawer({ selected, close, copy, logs, openEdit }: { selected: any
   const commercial = selected.commercial as DevCommercialRow | undefined;
   const entity = normalizeCanonicalEntity(selected.entity || selected.type || item.entity_type || 'registro');
   const related = devRelatedLogs(selected, logs);
-  const title = item.name || item.business_name || item.customer_name || item.full_name || item.email || item.id || 'Registro';
+  const title = item.title || item.name || item.business_name || item.customer_name || item.full_name || item.email || item.id || 'Registro';
   const metadata = item.metadata || item.action_metadata || item.raw_payload || item.payload || null;
-  return <div className="detail-drawer-backdrop" onClick={close}><aside className="detail-drawer" onClick={event => event.stopPropagation()}><button className="drawer-close" onClick={close}>×</button><Badge tone="purple">{selected.type || 'Detalhes'}</Badge><h2>{title}</h2><p>Visão 360º com dados principais, timeline relacionada, metadata e ações rápidas para suporte.</p><div className="drawer-actions">{['client','company','agenda','payment','manual_payment','license_key','webhook','briefing','implementation'].includes(entity) && <button onClick={() => openEdit(entity, item)}>Editar registro</button>}{item.email && <button onClick={() => copy(item.email, 'E-mail')}>Copiar e-mail</button>}{(item.whatsapp || item.phone || item.customer_phone) && <button onClick={() => window.open(`https://wa.me/${String(item.whatsapp || item.phone || item.customer_phone).replace(/\D/g, '')}`, '_blank')}>WhatsApp</button>}{(item.public_slug || item.slug || item.agenda_slug) && <button onClick={() => copy(`${window.location.origin}/#/agendar/${item.public_slug || item.slug || item.agenda_slug}`, 'Link')}>Copiar agendamento</button>}<button onClick={() => copy(JSON.stringify(commercial || item, null, 2), 'Metadata')}>Copiar JSON</button></div><div className="detail-kpi-grid"><span><b>Status</b><small>{item.status || item.subscription_status || item.payment_status || item.severity || '—'}</small></span><span><b>Plano</b><small>{item.plan || item.plan_id || item.current_plan_id || commercial?.plan || '—'}</small></span><span><b>Criado</b><small>{formatDate(item.created_at || commercial?.createdAt)}</small></span><span><b>Atualizado</b><small>{formatDate(item.updated_at || item.reviewed_at || commercial?.lastActivity)}</small></span></div>{commercial && <section className="drawer-commercial-360"><h3>Operação comercial</h3><div className="detail-kpi-grid"><span><b>Plano</b><small>{commercial.plan} · {commercial.planStatus}</small></span><span><b>Pagamento</b><small>{commercial.paymentStatus}</small></span><span><b>Agenda</b><small>{commercial.agendaStatus}</small></span><span><b>Agendamentos</b><small>{commercial.appointmentsCount}</small></span></div><div className="commercial-pendency-list">{commercial.pending.length ? commercial.pending.map(item => <span key={item}>{item}</span>) : <span>sem pendências comerciais</span>}</div><div className="drawer-actions">{commercial.agenda?.public_slug || commercial.agenda?.slug || commercial.company?.public_slug || commercial.company?.slug ? <button onClick={() => copy(`${window.location.origin}/#/agendar/${commercial.agenda?.public_slug || commercial.agenda?.slug || commercial.company?.public_slug || commercial.company?.slug}`, 'Link público')}>Copiar link público</button> : null}{commercial.whatsapp && <button onClick={() => window.open(`https://wa.me/${String(commercial.whatsapp).replace(/\D/g, '')}`, '_blank')}>Abrir WhatsApp</button>}</div></section>}{related.length > 0 && <section className="drawer-timeline"><h3>Timeline relacionada</h3>{related.map((log: any, index: number) => <article key={log.id || index}><i className={`dot ${String(log.severity || 'info').toLowerCase()}`} /><div><b>{log.title || log.action || 'Evento'}</b><span>{log.description || log.entity_type || 'Sem descrição'}</span><small>{formatDate(log.created_at)} · {log.actor_email || log.origin || log.source || 'sistema'}</small></div></article>)}</section>}{metadata && <section className="drawer-metadata"><h3>Metadata relevante</h3><pre>{JSON.stringify(metadata, null, 2)}</pre></section>}<section className="drawer-metadata"><h3>Registro completo</h3><pre>{JSON.stringify(commercial || item, null, 2)}</pre></section></aside></div>;
+  return <div className="detail-drawer-backdrop" onClick={close}><aside className="detail-drawer" onClick={event => event.stopPropagation()}><button className="drawer-close" onClick={close}>×</button><Badge tone="purple">{selected.type || 'Detalhes'}</Badge><h2>{title}</h2><p>Visão 360º com dados principais, timeline relacionada, metadata e ações rápidas para suporte.</p><div className="drawer-actions">{['client','company','agenda','payment','manual_payment','license_key','webhook','briefing','implementation','support_case'].includes(entity) && <button onClick={() => openEdit(entity, item)}>Editar registro</button>}{item.email && <button onClick={() => copy(item.email, 'E-mail')}>Copiar e-mail</button>}{(item.whatsapp || item.phone || item.customer_phone) && <button onClick={() => window.open(`https://wa.me/${String(item.whatsapp || item.phone || item.customer_phone).replace(/\D/g, '')}`, '_blank')}>WhatsApp</button>}{(item.public_slug || item.slug || item.agenda_slug) && <button onClick={() => copy(`${window.location.origin}/#/agendar/${item.public_slug || item.slug || item.agenda_slug}`, 'Link')}>Copiar agendamento</button>}<button onClick={() => copy(JSON.stringify(commercial || item, null, 2), 'Metadata')}>Copiar JSON</button></div><div className="detail-kpi-grid"><span><b>Status</b><small>{item.status || item.subscription_status || item.payment_status || item.severity || '—'}</small></span><span><b>Plano</b><small>{item.plan || item.plan_id || item.current_plan_id || commercial?.plan || '—'}</small></span><span><b>Criado</b><small>{formatDate(item.created_at || commercial?.createdAt)}</small></span><span><b>Atualizado</b><small>{formatDate(item.updated_at || item.reviewed_at || commercial?.lastActivity)}</small></span></div>{commercial && <section className="drawer-commercial-360"><h3>Operação comercial</h3><div className="detail-kpi-grid"><span><b>Plano</b><small>{commercial.plan} · {commercial.planStatus}</small></span><span><b>Pagamento</b><small>{commercial.paymentStatus}</small></span><span><b>Agenda</b><small>{commercial.agendaStatus}</small></span><span><b>Agendamentos</b><small>{commercial.appointmentsCount}</small></span></div><div className="commercial-pendency-list">{commercial.pending.length ? commercial.pending.map(item => <span key={item}>{item}</span>) : <span>sem pendências comerciais</span>}</div><div className="drawer-actions">{commercial.agenda?.public_slug || commercial.agenda?.slug || commercial.company?.public_slug || commercial.company?.slug ? <button onClick={() => copy(`${window.location.origin}/#/agendar/${commercial.agenda?.public_slug || commercial.agenda?.slug || commercial.company?.public_slug || commercial.company?.slug}`, 'Link público')}>Copiar link público</button> : null}{commercial.whatsapp && <button onClick={() => window.open(`https://wa.me/${String(commercial.whatsapp).replace(/\D/g, '')}`, '_blank')}>Abrir WhatsApp</button>}</div></section>}{related.length > 0 && <section className="drawer-timeline"><h3>Timeline relacionada</h3>{related.map((log: any, index: number) => <article key={log.id || index}><i className={`dot ${String(log.severity || 'info').toLowerCase()}`} /><div><b>{log.title || log.action || 'Evento'}</b><span>{log.description || log.entity_type || 'Sem descrição'}</span><small>{formatDate(log.created_at)} · {log.actor_email || log.origin || log.source || 'sistema'}</small></div></article>)}</section>}{metadata && <section className="drawer-metadata"><h3>Metadata relevante</h3><pre>{JSON.stringify(metadata, null, 2)}</pre></section>}<section className="drawer-metadata"><h3>Registro completo</h3><pre>{JSON.stringify(commercial || item, null, 2)}</pre></section></aside></div>;
 }
 
 function DevInspectorPanel({ rows, metrics, close, exportSummary }: { rows: any; metrics: any; close: () => void; exportSummary: (entity: string, data: any[]) => void }) {

@@ -22,6 +22,12 @@ function normalizeLog(row, source) {
   };
 }
 
+function supportCaseKind(row) {
+  const metadata = row && typeof row.metadata === 'object' ? row.metadata : {};
+  const text = `${metadata.kind || ''} ${metadata.type || ''} ${row?.title || ''} ${row?.description || ''}`.toLowerCase();
+  return /implementation|implant/.test(text) ? 'implementation' : 'support';
+}
+
 module.exports = async function handler(req, res) {
   applySecurityHeaders(res);
 
@@ -62,6 +68,9 @@ module.exports = async function handler(req, res) {
       safe('/rest/v1/agendapro_system_alerts?select=*&order=created_at.desc&limit=100'),
     ]);
 
+    const supportCases = implementations;
+    const implementationCases = supportCases.filter(row => supportCaseKind(row) === 'implementation');
+
     const logs = [
       ...auditLogs.map(row => normalizeLog(row, 'auditoria')),
       ...activityLogs.map(row => normalizeLog(row, 'atividade')),
@@ -84,7 +93,8 @@ module.exports = async function handler(req, res) {
         payments: payments.length,
         manualPayments: manualPayments.length,
         briefings: briefings.length,
-        implementations: implementations.length,
+        implementations: implementationCases.length,
+        supportCases: supportCases.length,
         webhooks: webhooks.length,
         availableKeys: licenseKeys.filter(k => k.status === 'available').length,
         estimatedRevenue,
@@ -96,7 +106,8 @@ module.exports = async function handler(req, res) {
       manualPayments,
       manualPaymentRequests: manualPayments,
       briefings,
-      implementations,
+      implementations: implementationCases,
+      supportCases,
       supportNotes,
       systemAlerts,
       webhooks,

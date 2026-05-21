@@ -393,7 +393,7 @@ module.exports = async function handler(req, res) {
           status: 'aguardando briefing',
           priority: payload.priority || 'normal',
           responsible_email: admin.email,
-          metadata: { source: 'briefing', briefing_id: id, original: beforeData || {} },
+          metadata: { source: 'briefing', kind: 'implementation', briefing_id: id, original: beforeData || {}, public_history: [{ at: now, label: 'Briefing convertido em implantacao', status: 'aguardando briefing' }] },
         }).catch(() => null);
         const implementationId = Array.isArray(inserted) ? inserted[0]?.id : inserted?.id;
         result = await patchById('agendapro_quick_briefings', id, compact({ status: 'converted', converted_at: now, converted_to_implementation_id: implementationId, internal_note: reason || payload.internal_note || null, updated_at: now }));
@@ -402,13 +402,13 @@ module.exports = async function handler(req, res) {
       }
       afterData = Array.isArray(result) ? result[0] : result;
       auditDescription = action === 'convert_to_implementation' ? 'Briefing convertido em implantação.' : 'Briefing atualizado pela Central Dev.';
-    } else if (entity === 'implementation') {
-      if (!id) return res.status(400).json({ ok: false, message: 'Informe a implantação.' });
+    } else if (entity === 'implementation' || entity === 'support_case') {
+      if (!id) return res.status(400).json({ ok: false, message: 'Informe o chamado.' });
       beforeData = await getOne('agendapro_support_cases', id);
       const status = ['complete', 'concluir'].includes(action) ? 'completed' : payload.status;
       result = await patchById('agendapro_support_cases', id, compact({ ...pick({ ...payload, status }, ['title', 'description', 'status', 'priority', 'responsible_email', 'resolution', 'metadata']), updated_at: now }));
       afterData = Array.isArray(result) ? result[0] : result;
-      auditDescription = 'Implantação atualizada pela Central Dev.';
+      auditDescription = entity === 'implementation' ? 'Implantação atualizada pela Central Dev.' : 'Chamado de suporte atualizado pela Central Dev.';
     } else if (entity === 'setting' || entity === 'plan') {
       const key = entity === 'plan' ? `plan:${cleanText(payload.id || payload.key || body.id || 'custom', 80).toLowerCase()}` : cleanText(payload.key || body.id, 120);
       if (!key) return res.status(400).json({ ok: false, message: 'Informe a chave de configuração.' });
@@ -432,7 +432,7 @@ module.exports = async function handler(req, res) {
         priority: payload.priority || 'normal',
         status: payload.status || 'open',
         note,
-        metadata: { source: 'central_dev', action },
+        metadata: { source: 'central_dev', action, visibility: 'internal' },
       });
       afterData = Array.isArray(result) ? result[0] : result;
       auditDescription = 'Observação de suporte adicionada.';
