@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, CheckCircle2, Clock, MapPin, MessageCircle, Search, Sparkles } from 'lucide-react';
+import { Building2, CalendarDays, CheckCircle2, Clock, MapPin, MessageCircle, Search, Sparkles } from 'lucide-react';
 import { Badge } from '../components/Badge';
 import { useApp } from '../contexts/AppContext';
 import { Appointment, Client } from '../types';
@@ -231,6 +231,21 @@ function normalizeActiveList<T extends Record<string, any>>(items: T[], fallback
   return active.length ? active : source;
 }
 
+const DEFAULT_PUBLIC_UNIT = 'Unidade principal';
+
+function publicUnitNameOf(item: any) {
+  return String(item?.unit || item?.unitName || item?.unit_name || item?.metadata?.unitName || item?.metadata?.unit || item?.raw_payload?.unitName || item?.raw_payload?.unit || '').trim() || DEFAULT_PUBLIC_UNIT;
+}
+
+function publicAgendaUnits(services: any[], team: any[]) {
+  const units = Array.from(new Set([...services, ...team].map(publicUnitNameOf))).filter(Boolean);
+  return units.length ? units : [DEFAULT_PUBLIC_UNIT];
+}
+
+function publicItemsForUnit<T extends Record<string, any>>(items: T[], unit: string): T[] {
+  return items.filter(item => publicUnitNameOf(item) === unit);
+}
+
 function getBookingProgress({ service, professional, date, time, name, phone }: { service: boolean; professional: boolean; date: boolean; time: boolean; name: boolean; phone: boolean }) {
   const steps = [service, professional, date, time, name, phone];
   const done = steps.filter(Boolean).length;
@@ -244,6 +259,7 @@ function buildWhatsAppReminder(data: any) {
 
 Serviço: ${data.serviceName}
 Profissional: ${data.professionalName}
+Unidade: ${data.unitName || DEFAULT_PUBLIC_UNIT}
 Data: ${formatDateLabel(data.date)}
 Horário: ${data.time}
 Nome: ${data.name}`;
@@ -281,6 +297,7 @@ function RemoteAgendaBooking({ slug }: { slug: string }) {
 
 function LocalAgendaBooking({ agenda }: { agenda: any }) {
   const { pushToast } = useApp();
+  const [unitIndex, setUnitIndex] = useState(0);
   const [serviceIndex, setServiceIndex] = useState(0);
   const [professionalIndex, setProfessionalIndex] = useState(0);
   const [selectedDate, setSelectedDate] = useState(dateKey());
@@ -289,8 +306,12 @@ function LocalAgendaBooking({ agenda }: { agenda: any }) {
   const [success, setSuccess] = useState(false);
   const [lastRequest, setLastRequest] = useState<any | null>(null);
 
-  const services = activePublicItems(Array.isArray(agenda.services) ? agenda.services : [], [{ id: 'service_1', name: 'Atendimento inicial', description: 'Atendimento profissional com horário marcado.', durationMinutes: 60, price: 0, active: true }]);
-  const team = activePublicItems(Array.isArray(agenda.team) ? agenda.team : [], [{ id: 'team_1', name: agenda.business?.name || 'Equipe responsável', role: 'Atendimento', specialty: agenda.business?.segment || 'Serviços com horário marcado' }]);
+  const rawServices = activePublicItems(Array.isArray(agenda.services) ? agenda.services : [], [{ id: 'service_1', name: 'Atendimento inicial', description: 'Atendimento profissional com horário marcado.', durationMinutes: 60, price: 0, active: true, unit: DEFAULT_PUBLIC_UNIT, unitName: DEFAULT_PUBLIC_UNIT }]);
+  const rawTeam = activePublicItems(Array.isArray(agenda.team) ? agenda.team : [], [{ id: 'team_1', name: agenda.business?.name || 'Equipe responsável', role: 'Atendimento', specialty: agenda.business?.segment || 'Serviços com horário marcado', unit: DEFAULT_PUBLIC_UNIT, unitName: DEFAULT_PUBLIC_UNIT }]);
+  const bookingUnits = publicAgendaUnits(rawServices, rawTeam);
+  const selectedUnit = bookingUnits[Math.min(unitIndex, Math.max(bookingUnits.length - 1, 0))] || DEFAULT_PUBLIC_UNIT;
+  const services = publicItemsForUnit(rawServices, selectedUnit);
+  const team = publicItemsForUnit(rawTeam, selectedUnit);
   const service = services[Math.min(serviceIndex, Math.max(services.length - 1, 0))] || services[0];
   const compatibleTeam = useMemo(() => teamForService(team, service), [team, service]);
   const professional = compatibleTeam[Math.min(professionalIndex, Math.max(compatibleTeam.length - 1, 0))] || compatibleTeam[0];
@@ -311,8 +332,10 @@ function LocalAgendaBooking({ agenda }: { agenda: any }) {
   const faqItems = useMemo(() => publicBookingFaq(agenda, service, durationMinutes), [agenda, service, durationMinutes]);
   const heroSubtitle = conversionData.subtitle || agenda.visual?.welcome || agenda.business?.description || agenda.visual?.slogan || 'Escolha serviço, profissional e horário em poucos passos. A empresa confirma sua solicitação pelo WhatsApp.';
   const heroTitle = conversionData.headline || agenda.business?.name;
+  const stepOffset = bookingUnits.length > 1 ? 1 : 0;
 
   useEffect(() => { document.title = `${agenda.business?.name || 'Agenda'} — Agendamento Online`; }, [agenda.business?.name]);
+  useEffect(() => { setServiceIndex(0); setProfessionalIndex(0); setTime(''); }, [selectedUnit]);
   useEffect(() => { setProfessionalIndex(0); setTime(''); }, [serviceIndex]);
   useEffect(() => { setTime(''); }, [selectedDate, professionalIndex]);
   useEffect(() => {
@@ -326,11 +349,12 @@ function LocalAgendaBooking({ agenda }: { agenda: any }) {
   const disabledReason = agenda.accessState?.message || 'Esta agenda está temporariamente indisponível para novos agendamentos.';
   const canSend = Boolean(!bookingDisabled && form.name.trim() && form.phone.trim() && selectedDate && time && service && professional);
   const bookingProgress = getBookingProgress({ service: Boolean(service), professional: Boolean(professional), date: Boolean(selectedDate), time: Boolean(time), name: Boolean(form.name.trim()), phone: Boolean(form.phone.trim()) });
-  const bookingSummary = { serviceName: service?.name || 'Serviço', professionalName: professional?.name || 'Equipe', date: selectedDate, time: time || availableSlots[0]?.time || '', name: form.name || 'Cliente' };
+  const bookingSummary = { unitName: selectedUnit, serviceName: service?.name || 'Serviço', professionalName: professional?.name || 'Equipe', date: selectedDate, time: time || availableSlots[0]?.time || '', name: form.name || 'Cliente' };
   const buildPublicConfirmationMessage = (data: any) => `Olá! Acabei de solicitar um agendamento em ${agenda.business?.name || 'AgendaPro'}.
 
 Serviço: ${data.serviceName}
 Profissional: ${data.professionalName}
+Unidade: ${data.unitName || DEFAULT_PUBLIC_UNIT}
 Data: ${formatDateLabel(data.date)}
 Horário: ${data.time}
 Nome: ${data.name}
@@ -375,6 +399,9 @@ Aguardo a confirmação.`;
           phone: form.phone,
           email: form.email,
           notes: form.notes,
+          unit: selectedUnit,
+          unitName: selectedUnit,
+          unitId: selectedUnit,
           professionalId: professional?.id || professional?.name,
           professionalName: professional?.name,
           serviceId: service.id || service.name,
@@ -386,7 +413,7 @@ Aguardo a confirmação.`;
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.ok) throw new Error(data?.message || 'Não foi possível enviar a solicitação.');
-      const requestSummary = { requestId: data?.request?.id, name: form.name, phone: form.phone, email: form.email, notes: form.notes, serviceName: service.name, professionalName: professional?.name || 'Equipe', date: selectedDate, time, durationMinutes, priceLabel: servicePriceLabel(service) };
+      const requestSummary = { requestId: data?.request?.id, name: form.name, phone: form.phone, email: form.email, notes: form.notes, unitName: selectedUnit, serviceName: service.name, professionalName: professional?.name || 'Equipe', date: selectedDate, time, durationMinutes, priceLabel: servicePriceLabel(service) };
       localStorage.setItem(`agp-public-booking-${agenda.slug}`, String(Date.now()));
       setLastRequest(requestSummary);
       setSuccess(true);
@@ -441,6 +468,7 @@ Aguardo a confirmação.`;
       </section>
 
       <section className="luxury-info-strip">
+        <article><b>{bookingUnits.length}</b><span>unidade(s)</span></article>
         <article><b>{services.length}</b><span>serviço(s) online</span></article>
         <article><b>{team.length}</b><span>profissional(is)</span></article>
         <article><b>{scheduleConfig.slotInterval} min</b><span>intervalo da agenda</span></article>
@@ -468,28 +496,29 @@ Aguardo a confirmação.`;
             <span className="luxury-status-chip">Solicitação registrada</span>
             <h2>Agendamento solicitado com sucesso.</h2>
             <p>A empresa recebeu seu pedido. Você receberá a confirmação pelo WhatsApp quando o estabelecimento aprovar ou ajustar o horário.</p>
-            {lastRequest && <div className="summary-box luxury-confirmation-summary"><b>{lastRequest.serviceName}</b><span>{formatDateLabel(lastRequest.date)} às {lastRequest.time}</span><span>{lastRequest.professionalName}</span><span>{lastRequest.name}</span></div>}
+            {lastRequest && <div className="summary-box luxury-confirmation-summary"><b>{lastRequest.serviceName}</b><span>{formatDateLabel(lastRequest.date)} às {lastRequest.time}</span><span>{lastRequest.professionalName}</span><span>{lastRequest.unitName || DEFAULT_PUBLIC_UNIT}</span><span>{lastRequest.name}</span></div>}
             <button className="btn secondary full" type="button" onClick={copyPublicConfirmation}>Copiar resumo</button>
             {agenda.business?.whatsapp && lastRequest && <a className="btn secondary full" href={whatsAppLink(agenda.business.whatsapp, buildPublicConfirmationMessage(lastRequest))} target="_blank" rel="noopener noreferrer">Enviar mensagem pelo WhatsApp</a>}
             <button className="btn primary full" type="button" onClick={() => setSuccess(false)}>Fazer outro agendamento</button>
           </div> : <>
-            <div className="luxury-stepper"><span className="active">1 Serviço</span><span className={professional ? 'active' : ''}>2 Profissional</span><span className={selectedDate ? 'active' : ''}>3 Data</span><span className={time ? 'active' : ''}>4 Horário</span><span className={canSend ? 'active' : ''}>5 Revisão</span></div>
-            <div className="luxury-section-heading"><span>Etapa 1</span><h2>Escolha o serviço</h2><p>Selecione o atendimento desejado para calcular duração, disponibilidade e valor.</p></div>
-            <div className="luxury-service-grid">{services.length ? services.map((item: any, index: number) => <button key={item.id || item.name || index} type="button" className={serviceIndex === index ? 'selected' : ''} onClick={() => { setServiceIndex(index); setProfessionalIndex(0); setTime(''); }}><b>{item.name || 'Atendimento'}</b><small>{item.description || item.category || 'Serviço disponível para agendamento online.'}</small><span><Clock size={14}/>{serviceDurationMinutes(item)} min</span><strong>{servicePriceLabel(item)}</strong></button>) : <div className="empty-availability luxury-empty-state"><CalendarDays/><b>Nenhum serviço ativo.</b><span>Fale com a empresa pelo WhatsApp para confirmar a disponibilidade.</span></div>}</div>
+            <div className={`luxury-stepper ${bookingUnits.length > 1 ? 'six' : ''}`}>{bookingUnits.length > 1 && <span className="active">1 Unidade</span>}<span className={service ? 'active' : ''}>{1 + stepOffset} Serviço</span><span className={professional ? 'active' : ''}>{2 + stepOffset} Profissional</span><span className={selectedDate ? 'active' : ''}>{3 + stepOffset} Data</span><span className={time ? 'active' : ''}>{4 + stepOffset} Horário</span><span className={canSend ? 'active' : ''}>{5 + stepOffset} Revisão</span></div>
+            {bookingUnits.length > 1 && <><div className="luxury-section-heading"><span>Etapa 1</span><h2>Escolha a unidade</h2><p>Selecione onde deseja ser atendido antes de ver serviços e profissionais disponíveis.</p></div><div className="luxury-unit-grid">{bookingUnits.map((unit, index) => <button key={unit} type="button" className={selectedUnit === unit ? 'selected' : ''} onClick={() => setUnitIndex(index)}><Building2 size={20}/><b>{unit}</b><small>{rawServices.filter(item => publicUnitNameOf(item) === unit).length} serviço(s) · {rawTeam.filter(item => publicUnitNameOf(item) === unit).length} profissional(is)</small></button>)}</div></>}
+            <div className="luxury-section-heading"><span>Etapa {1 + stepOffset}</span><h2>Escolha o serviço</h2><p>Selecione o atendimento desejado para calcular duração, disponibilidade e valor.</p></div>
+            <div className="luxury-service-grid">{services.length ? services.map((item: any, index: number) => <button key={item.id || item.name || index} type="button" className={serviceIndex === index ? 'selected' : ''} onClick={() => { setServiceIndex(index); setProfessionalIndex(0); setTime(''); }}><b>{item.name || 'Atendimento'}</b><small>{item.description || item.category || 'Serviço disponível para agendamento online.'}</small><span><Clock size={14}/>{serviceDurationMinutes(item)} min</span><i className="unit-inline-badge">{publicUnitNameOf(item)}</i><strong>{servicePriceLabel(item)}</strong></button>) : <div className="empty-availability luxury-empty-state"><CalendarDays/><b>Nenhum serviço ativo nesta unidade.</b><span>Escolha outra unidade ou fale com a empresa pelo WhatsApp.</span></div>}</div>
 
-            <div className="luxury-section-heading"><span>Etapa 2</span><h2>Profissional</h2><p>{compatibleTeam.length > 1 ? 'Escolha quem realizará o atendimento.' : compatibleTeam.length ? 'Profissional responsável pré-selecionado.' : 'Nenhum profissional ativo está vinculado a este serviço.'}</p></div>
-            {compatibleTeam.length ? <div className="luxury-professional-grid">{compatibleTeam.map((member: any, index: number) => <button key={member.id || member.name || index} type="button" className={professionalIndex === index ? 'selected' : ''} onClick={() => setProfessionalIndex(index)}><span>{String(member.name || 'P').slice(0, 2).toUpperCase()}</span><b>{member.name || 'Profissional'}</b><small>{member.role || member.specialty || 'Atendimento'}</small></button>)}</div> : <div className="empty-availability luxury-empty-state"><CalendarDays/><b>Serviço sem profissional disponível.</b><span>Escolha outro serviço ou fale com a empresa pelo WhatsApp para confirmar atendimento.</span></div>}
+            <div className="luxury-section-heading"><span>Etapa {2 + stepOffset}</span><h2>Profissional</h2><p>{compatibleTeam.length > 1 ? 'Escolha quem realizará o atendimento.' : compatibleTeam.length ? 'Profissional responsável pré-selecionado.' : 'Nenhum profissional ativo está vinculado a este serviço.'}</p></div>
+            {compatibleTeam.length ? <div className="luxury-professional-grid">{compatibleTeam.map((member: any, index: number) => <button key={member.id || member.name || index} type="button" className={professionalIndex === index ? 'selected' : ''} onClick={() => setProfessionalIndex(index)}><span>{String(member.name || 'P').slice(0, 2).toUpperCase()}</span><b>{member.name || 'Profissional'}</b><small>{member.role || member.specialty || 'Atendimento'}</small><i className="unit-inline-badge">{publicUnitNameOf(member)}</i></button>)}</div> : <div className="empty-availability luxury-empty-state"><CalendarDays/><b>Serviço sem profissional disponível.</b><span>Escolha outro serviço ou fale com a empresa pelo WhatsApp para confirmar atendimento.</span></div>}
 
-            <div className="luxury-section-heading"><span>Etapa 3</span><h2>Data</h2><p>Mostramos apenas datas dentro da janela de agendamento configurada pelo estabelecimento.</p></div>
+            <div className="luxury-section-heading"><span>Etapa {3 + stepOffset}</span><h2>Data</h2><p>Mostramos apenas datas dentro da janela de agendamento configurada pelo estabelecimento.</p></div>
             <div className="luxury-date-strip">{dateOptions.slice(0, 14).map(item => <button key={item.date} type="button" disabled={!item.availableDay} className={`${selectedDate === item.date ? 'selected' : ''} ${!item.availableDay ? 'muted' : ''}`} onClick={() => item.availableDay && setSelectedDate(item.date)}><b>{item.label}</b><span>{item.weekday}</span><small>{formatShortDate(item.date)}</small></button>)}</div>
 
-            <div className="luxury-section-heading"><span>Etapa 4</span><h2>Horário</h2><p>Horários ocupados, bloqueados ou fora do expediente ficam indisponíveis automaticamente.</p></div>
+            <div className="luxury-section-heading"><span>Etapa {4 + stepOffset}</span><h2>Horário</h2><p>Horários ocupados, bloqueados ou fora do expediente ficam indisponíveis automaticamente.</p></div>
             {slots.length ? <>
               <div className="luxury-time-grid">{slots.map(slot => <button key={slot.time} disabled={!slot.available} title={slot.reason} type="button" className={`${time === slot.time ? 'selected' : ''} ${!slot.available ? `disabled ${slot.status}` : ''}`} onClick={() => slot.available && setTime(slot.time)}><b>{slot.time}</b><small>{slot.available ? 'Disponível' : slot.status === 'occupied' ? 'Ocupado' : slot.status === 'blocked' ? 'Bloqueado' : 'Indisponível'}</small></button>)}</div>
               {availableSlots.length > 0 && <div className="smart-slot-suggestions"><span>Horários recomendados</span>{availableSlots.map(slot => <button key={`smart-${slot.time}`} type="button" className={time === slot.time ? 'selected' : ''} onClick={() => setTime(slot.time)}>{slot.time}</button>)}</div>}
             </> : <div className="empty-availability luxury-empty-state"><CalendarDays/><b>{professional ? 'Não há horários disponíveis nesta data.' : 'Escolha um profissional para ver horários.'}</b><span>{professional ? (scheduleConfig.closedMessage || 'Escolha outro dia ou fale com a empresa pelo WhatsApp.') : 'Este serviço precisa de um profissional ativo compatível.'}</span></div>}
 
-            <div className="luxury-section-heading"><span>Etapa 5</span><h2>Seus dados</h2><p>Seus dados serão usados apenas para confirmar o agendamento.</p></div>
+            <div className="luxury-section-heading"><span>Etapa {5 + stepOffset}</span><h2>Seus dados</h2><p>Seus dados serão usados apenas para confirmar o agendamento.</p></div>
             <div className="luxury-form-grid"><input className="field" placeholder="Nome completo" value={form.name} onChange={e => setForm({...form,name:e.target.value})}/><input className="field" placeholder="WhatsApp" value={form.phone} onChange={e => setForm({...form,phone:formatWhatsappInput(e.target.value)})}/><input className="field" placeholder="E-mail opcional" value={form.email} onChange={e => setForm({...form,email:e.target.value})}/><textarea className="field" placeholder="Observação opcional" value={form.notes} onChange={e => setForm({...form,notes:e.target.value})}/></div>
             <p className="luxury-trust-copy">Você receberá a confirmação pelo WhatsApp. O horário fica sujeito à aprovação do estabelecimento.</p>
           </>}
@@ -498,7 +527,7 @@ Aguardo a confirmação.`;
         {!success && <aside className="luxury-summary-card">
           <span className="luxury-status-chip">Resumo</span>
           <h3>Revise sua solicitação</h3>
-          <div className="luxury-summary-list"><p><b>Serviço</b><span>{service?.name || 'Selecione'}</span></p><p><b>Profissional</b><span>{professional?.name || 'Sem compatível'}</span></p><p><b>Data</b><span>{selectedDate ? formatDateLabel(selectedDate) : 'Escolha uma data'}</span></p><p><b>Horário</b><span>{time || 'Escolha um horário'}</span></p><p><b>Duração</b><span>{durationMinutes} minutos</span></p><p><b>Valor</b><span>{servicePriceLabel(service)}</span></p></div>
+          <div className="luxury-summary-list"><p><b>Unidade</b><span>{selectedUnit}</span></p><p><b>Serviço</b><span>{service?.name || 'Selecione'}</span></p><p><b>Profissional</b><span>{professional?.name || 'Sem compatível'}</span></p><p><b>Data</b><span>{selectedDate ? formatDateLabel(selectedDate) : 'Escolha uma data'}</span></p><p><b>Horário</b><span>{time || 'Escolha um horário'}</span></p><p><b>Duração</b><span>{durationMinutes} minutos</span></p><p><b>Valor</b><span>{servicePriceLabel(service)}</span></p></div>
           <div className="booking-readiness-card">
             <b>{canSend ? 'Tudo pronto para enviar' : 'Complete os dados pendentes'}</b>
             <span>{canSend ? 'A empresa receberá serviço, profissional, data, horário e contato.' : !professional ? 'Escolha um serviço com profissional ativo compatível.' : 'O botão libera quando nome, WhatsApp e horário estiverem preenchidos.'}</span>
