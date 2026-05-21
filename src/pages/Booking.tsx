@@ -69,6 +69,7 @@ function normalizePublicAgenda(row: any) {
     bookedSlots: Array.isArray(row?.booked_slots) ? row.booked_slots : Array.isArray(row?.bookedSlots) ? row.bookedSlots : [],
     publicBookingDisabled: Boolean(row?.public_booking_disabled),
     accessState: row?.access_state || null,
+    conversion: normalizePublicConversion(row),
     rules: row?.rules || raw.rules || { cancellation: 'Aguarde confirmação pelo WhatsApp.' }
   };
 }
@@ -78,6 +79,55 @@ function whatsAppLink(phone?: string, message?: string) {
   if (!clean) return '';
   const target = clean.startsWith('55') ? clean : `55${clean}`;
   return `https://wa.me/${target}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
+}
+
+function splitPublicList(value: any): string[] {
+  if (Array.isArray(value)) return value.map((item: any) => typeof item === 'string' ? item : item?.label || item?.title || item?.text || item?.name || '').map((item: string) => item.trim()).filter(Boolean);
+  return String(value || '').split(/[\n;|]+/).map((item: string) => item.trim()).filter(Boolean);
+}
+
+function normalizeTestimonials(value: any): Array<{ quote: string; author: string }> {
+  if (Array.isArray(value)) {
+    return value.map((item: any) => ({
+      quote: String(typeof item === 'string' ? item : item?.quote || item?.text || item?.message || '').trim(),
+      author: String(typeof item === 'string' ? 'Cliente AgendaPro' : item?.author || item?.name || 'Cliente AgendaPro').trim()
+    })).filter((item: { quote: string }) => item.quote);
+  }
+  return String(value || '').split(/\n+/).map((line: string) => {
+    const [quote, author] = line.split(/\s[-–—]\s/);
+    return { quote: String(quote || '').trim(), author: String(author || 'Cliente AgendaPro').trim() };
+  }).filter((item: { quote: string }) => item.quote);
+}
+
+function normalizePublicConversion(row: any) {
+  const raw = row?.raw_payload || row || {};
+  const theme = row?.theme || row?.theme_config || raw.visual || {};
+  const source = raw.conversion || row?.conversion || theme.conversion || {};
+  const benefits = splitPublicList(source.benefits).length ? splitPublicList(source.benefits) : ['Agendamento online em poucos passos', 'Confirmação preferencial pelo WhatsApp', 'Resumo claro antes de enviar'];
+  const differentials = splitPublicList(source.differentials).length ? splitPublicList(source.differentials) : ['Horários calculados com regras reais', 'Serviços e profissionais ativos', 'Contato direto com o estabelecimento'];
+  const trustBadges = splitPublicList(source.trustBadges || source.badges).length ? splitPublicList(source.trustBadges || source.badges) : ['Agenda segura', 'Solicitação revisada pela empresa', 'Dados usados apenas para contato'];
+  return {
+    headline: String(source.headline || '').trim(),
+    subtitle: String(source.subtitle || '').trim(),
+    benefits,
+    differentials,
+    testimonials: normalizeTestimonials(source.testimonials).slice(0, 3),
+    experienceYears: String(source.experienceYears || source.years || '').trim(),
+    estimatedAppointments: String(source.estimatedAppointments || source.attendances || '').trim(),
+    trustBadges
+  };
+}
+
+function publicBookingFaq(agenda: any, service: any, durationMinutes: number) {
+  const rules = agenda?.rules || {};
+  return [
+    ['Como confirmo meu horário?', 'Envie a solicitação pela página. A empresa recebe os dados e confirma ou ajusta pelo WhatsApp.'],
+    ['Posso remarcar?', 'Sim. Fale com a empresa pelo WhatsApp usando o resumo do agendamento para solicitar uma nova data.'],
+    ['Como cancelar?', rules.cancellation || 'Use o canal oficial da empresa e avise com antecedência para liberar o horário.'],
+    ['O pagamento é online?', 'Esta página registra a solicitação. Pagamento, sinal ou condições são combinados diretamente com a empresa.'],
+    ['Quanto tempo dura?', service ? `O serviço selecionado dura cerca de ${durationMinutes} minutos.` : 'A duração aparece depois que você escolhe o serviço.'],
+    ['Onde fica?', agenda?.business?.address || 'O endereço fica disponível nos dados de contato da empresa, quando cadastrado.']
+  ];
 }
 
 
@@ -252,11 +302,15 @@ function LocalAgendaBooking({ agenda }: { agenda: any }) {
   const dateOptions = useMemo(() => buildDateOptions(scheduleConfig, 18), [scheduleConfig]);
   const validDateOptions = dateOptions.filter(item => item.availableDay).slice(0, 14);
   const slots = useMemo(() => professional ? generateSlotsForDate({ date: selectedDate, serviceDuration: durationMinutes, appointments: professionalBookedSlots, scheduleConfig }) : [], [selectedDate, durationMinutes, professionalBookedSlots, scheduleConfig, professional]);
+  const conversionData = useMemo(() => agenda.conversion || normalizePublicConversion(agenda), [agenda]);
   const publicUrl = `${window.location.origin}${window.location.pathname}#/agendar/${agenda.slug}`;
   const presentationUrl = `${window.location.origin}${window.location.pathname}#/agenda/${agenda.slug}`;
   const whatsappHref = whatsAppLink(agenda.business?.whatsapp, `Olá! Vim pela página de agendamento da ${agenda.business?.name}. Gostaria de tirar uma dúvida.`);
   const nextSlot = services.length && professional ? nextAvailableLabel(dateOptions, service ? [service] : services, professionalBookedSlots, scheduleConfig) : 'Sem serviço disponível';
   const openNow = isOpenNow(scheduleConfig);
+  const faqItems = useMemo(() => publicBookingFaq(agenda, service, durationMinutes), [agenda, service, durationMinutes]);
+  const heroSubtitle = conversionData.subtitle || agenda.visual?.welcome || agenda.business?.description || agenda.visual?.slogan || 'Escolha serviço, profissional e horário em poucos passos. A empresa confirma sua solicitação pelo WhatsApp.';
+  const heroTitle = conversionData.headline || agenda.business?.name;
 
   useEffect(() => { document.title = `${agenda.business?.name || 'Agenda'} — Agendamento Online`; }, [agenda.business?.name]);
   useEffect(() => { setProfessionalIndex(0); setTime(''); }, [serviceIndex]);
@@ -351,9 +405,9 @@ Aguardo a confirmação.`;
     <main className="luxury-booking-shell">
       <section className="luxury-booking-hero public-hero-pro">
         <div className="luxury-hero-content public-hero-copy">
-          <div className="luxury-chip-row"><span className="luxury-status-chip premium-pulse">Agenda publicada</span><span className={openNow ? 'luxury-open-chip open premium-pulse' : 'luxury-open-chip'}>{openNow ? 'Aberto agora' : 'Fechado agora'}</span>{agenda.visual?.instagram && <span className="luxury-status-chip">{agenda.visual.instagram}</span>}</div>
-          <h1>{agenda.business?.name}</h1>
-          <p>{agenda.visual?.welcome || agenda.business?.description || agenda.visual?.slogan || 'Agendamento online profissional, simples e seguro.'}</p>
+          <div className="luxury-chip-row"><span className="luxury-status-chip premium-pulse">Agenda segura</span><span className={openNow ? 'luxury-open-chip open premium-pulse' : 'luxury-open-chip'}>{openNow ? 'Aberto agora' : 'Fechado agora'}</span>{agenda.visual?.instagram && <span className="luxury-status-chip">{agenda.visual.instagram}</span>}</div>
+          <h1>{heroTitle}</h1>
+          <p>{heroSubtitle}</p>
           <div className="luxury-hero-meta">
             {agenda.business?.address && <span><MapPin size={17}/>{agenda.business.address}</span>}
             {agenda.business?.whatsapp && <span><MessageCircle size={17}/>{agenda.business.whatsapp}</span>}
@@ -374,6 +428,16 @@ Aguardo a confirmação.`;
         <article><Sparkles/><b>Atendimento organizado</b><span>Solicitação online com confirmação pelo estabelecimento.</span></article>
         <article><Clock/><b>Horários inteligentes</b><span>Disponibilidade calculada com regras, pausas e antecedência.</span></article>
         <article><MessageCircle/><b>Contato direto</b><span>WhatsApp, e-mail e localização sempre à mão.</span></article>
+      </section>
+
+      <section className="public-conversion-proof">
+        <div className="conversion-trust-row">{conversionData.trustBadges.slice(0, 4).map((item: string) => <span key={item}>{item}</span>)}</div>
+        <div className="conversion-proof-grid">
+          <article><span>Por que agendar aqui</span>{conversionData.benefits.slice(0, 4).map((item: string) => <b key={item}>{item}</b>)}</article>
+          <article><span>Diferenciais</span>{conversionData.differentials.slice(0, 4).map((item: string) => <b key={item}>{item}</b>)}</article>
+          <article><span>Confiança</span>{conversionData.experienceYears && <b>{conversionData.experienceYears} ano(s) de experiência</b>}{conversionData.estimatedAppointments && <b>{conversionData.estimatedAppointments} atendimento(s) realizados</b>}<b>{scheduleConfig.cancellationText || agenda.rules?.cancellation || 'Política de cancelamento informada pela empresa'}</b></article>
+        </div>
+        {conversionData.testimonials.length > 0 && <div className="conversion-testimonial-grid">{conversionData.testimonials.map((item: { quote: string; author: string }) => <article key={`${item.author}-${item.quote}`}><p>“{item.quote}”</p><b>{item.author}</b></article>)}</div>}
       </section>
 
       <section className="luxury-info-strip">
@@ -449,7 +513,13 @@ Aguardo a confirmação.`;
         <article><h3>Funcionamento</h3><p>{summarizeSchedule(scheduleConfig)}</p><small>Intervalos, dias bloqueados e pausas são respeitados automaticamente.</small></article>
         <article><h3>Regras de agendamento</h3><p>{scheduleConfig.cancellationText || agenda.rules?.cancellation || 'Cancelamentos e remarcações seguem as regras do estabelecimento.'}</p><small>Antecedência mínima: {scheduleConfig.minAdvanceHours}h • Janela: {scheduleConfig.maxFutureDays} dias</small></article>
       </section>
+
+      <section className="public-faq-section">
+        <div className="luxury-section-heading"><span>Dúvidas frequentes</span><h2>Antes de enviar sua solicitação</h2><p>Informações simples para evitar ida e volta no WhatsApp.</p></div>
+        <div className="public-faq-grid">{faqItems.map(([question, answer]: string[]) => <article key={question}><b>{question}</b><span>{answer}</span></article>)}</div>
+      </section>
     </main>
+    {!success && <div className="mobile-booking-sticky-cta"><button type="button" onClick={scrollToBooking} disabled={bookingDisabled}>{bookingDisabled ? 'Agenda indisponível' : time ? 'Revisar solicitação' : 'Agendar agora'}</button>{whatsappHref && <a href={whatsappHref} target="_blank" rel="noopener noreferrer">WhatsApp</a>}</div>}
     <LuxuryAgendaFooter agenda={agenda} config={scheduleConfig} publicUrl={publicUrl} presentationUrl={presentationUrl}/>
   </div>;
 }
