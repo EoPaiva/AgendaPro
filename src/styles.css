@@ -3022,3 +3022,127 @@
   .unit-foundation-grid button:hover,
   .luxury-unit-grid button:hover{transform:none}
 }
+
+/* AgendaPro v0.6.4.0 — Production SaaS Polish */
+.production-polish-panel{
+  position:relative;
+  overflow:hidden;
+  display:grid;
+  grid-template-columns:minmax(0,.9fr) minmax(0,1.25fr) auto;
+  gap:1rem;
+  align-items:center;
+  padding:1.15rem;
+  border:1px solid rgba(16,185,129,.2);
+  border-radius:28px;
+  background:
+    radial-gradient(circle at 8% 0%,rgba(16,185,129,.16),transparent 30%),
+    linear-gradient(135deg,#06111f,#0f172a 54%,#052e2b);
+  color:#e2e8f0;
+  box-shadow:0 28px 80px rgba(2,6,23,.24);
+}
+.production-polish-panel:after{
+  content:"";
+  position:absolute;
+  inset:0 auto 0 -40%;
+  width:34%;
+  pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.10),transparent);
+  transform:skewX(-16deg);
+  animation:agpLightSweep 7s ease-in-out infinite;
+}
+.production-polish-copy,
+.production-polish-checks,
+.production-polish-actions{position:relative;z-index:1}
+.production-polish-copy h3{margin:.55rem 0 .35rem;color:#fff;font-size:1.45rem;letter-spacing:-.035em}
+.production-polish-copy p{margin:0;color:#bbf7d0;line-height:1.55}
+.production-polish-copy small{display:block;margin-top:.55rem;color:#a7f3d0;font-weight:800}
+.production-polish-meter{
+  height:9px;
+  margin:.85rem 0 0;
+  border-radius:999px;
+  background:rgba(255,255,255,.12);
+  overflow:hidden;
+}
+.production-polish-meter i{
+  display:block;
+  height:100%;
+  border-radius:inherit;
+  background:linear-gradient(90deg,#10b981,#34d399,#a7f3d0);
+  box-shadow:0 0 26px rgba(16,185,129,.45);
+  transition:width .45s ease;
+}
+.production-polish-checks{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:.55rem;
+}
+.production-polish-checks button{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  gap:.25rem .55rem;
+  align-items:start;
+  text-align:left;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:17px;
+  padding:.7rem;
+  background:rgba(255,255,255,.06);
+  color:#f8fafc;
+  cursor:pointer;
+  transition:.18s ease;
+}
+.production-polish-checks button:hover{
+  transform:translateY(-1px);
+  background:rgba(255,255,255,.1);
+  border-color:rgba(16,185,129,.32);
+}
+.production-polish-checks button.done span{color:#34d399}
+.production-polish-checks button.pending span{color:#fbbf24}
+.production-polish-checks b,
+.production-polish-checks small{display:block}
+.production-polish-checks b{font-size:.9rem}
+.production-polish-checks small{
+  grid-column:2;
+  color:#cbd5e1;
+  line-height:1.35;
+  font-size:.76rem;
+}
+.production-polish-actions{
+  display:grid;
+  gap:.55rem;
+  min-width:180px;
+}
+.production-polish-actions .btn.secondary{
+  background:rgba(255,255,255,.08);
+  color:#e2e8f0;
+  border-color:rgba(255,255,255,.16);
+}
+.production-polish-actions .btn.secondary:hover{
+  background:#fff;
+  color:#0f172a;
+}
+.agenda-live-preview .preview-cta{
+  display:grid;
+  place-items:center;
+  width:100%;
+  min-height:48px;
+  border-radius:16px;
+  background:#fff;
+  color:#0f172a;
+  font-weight:950;
+  letter-spacing:0;
+  text-transform:none;
+}
+@media(max-width:1180px){
+  .production-polish-panel{grid-template-columns:1fr}
+  .production-polish-actions{grid-template-columns:repeat(3,minmax(0,1fr));min-width:0}
+}
+@media(max-width:720px){
+  .production-polish-checks,
+  .production-polish-actions{grid-template-columns:1fr}
+}
+@media(prefers-reduced-motion:reduce){
+  .production-polish-panel:after{animation:none;display:none}
+  .production-polish-meter i,
+  .production-polish-checks button{transition:none}
+  .production-polish-checks button:hover{transform:none}
+}
