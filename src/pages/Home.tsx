@@ -146,6 +146,188 @@ type AgendaDraft = {
   bookedSlots?: any[];
 };
 
+type BookingTemplateKey = 'received' | 'confirmation' | 'reschedule' | 'cancellation' | 'reminder' | 'completed' | 'reactivation' | 'payment_pending' | 'welcome';
+type BookingMessageTemplate = {
+  key: BookingTemplateKey;
+  label: string;
+  description: string;
+  subject: string;
+  body: string;
+};
+
+const bookingMessageTemplates: BookingMessageTemplate[] = [
+  {
+    key: 'confirmation',
+    label: 'Confirmação',
+    description: 'Confirma o horário escolhido pelo cliente.',
+    subject: 'Agendamento confirmado - {servico}',
+    body: `Olá, {cliente}! Tudo bem?
+
+Seu agendamento foi confirmado na {empresa}.
+
+Serviço: {servico}
+Profissional: {profissional}
+Data: {data}
+Horário: {horario}
+Endereço: {endereco}
+
+Qualquer dúvida, estamos à disposição.`
+  },
+  {
+    key: 'reschedule',
+    label: 'Remarcação',
+    description: 'Comunica alteração de data ou horário.',
+    subject: 'Agendamento remarcado - {empresa}',
+    body: `Olá, {cliente}! Tudo bem?
+
+Seu agendamento na {empresa} foi remarcado.
+
+Novo horário: {data} às {horario}
+Serviço: {servico}
+Profissional: {profissional}
+
+Se precisar ajustar novamente, fale com a gente pelo WhatsApp: {whatsapp}.`
+  },
+  {
+    key: 'cancellation',
+    label: 'Cancelamento',
+    description: 'Informa cancelamento e abre caminho para novo horário.',
+    subject: 'Agendamento cancelado - {empresa}',
+    body: `Olá, {cliente}! Tudo bem?
+
+Seu agendamento na {empresa} precisou ser cancelado.
+
+Serviço: {servico}
+Data: {data}
+Horário: {horario}
+
+Podemos verificar uma nova opção de horário para você: {link_agenda}`
+  },
+  {
+    key: 'reminder',
+    label: 'Lembrete',
+    description: 'Lembra o cliente antes do atendimento.',
+    subject: 'Lembrete do seu agendamento - {empresa}',
+    body: `Olá, {cliente}! Passando para lembrar do seu agendamento na {empresa}.
+
+Serviço: {servico}
+Profissional: {profissional}
+Data: {data}
+Horário: {horario}
+Endereço: {endereco}
+
+Qualquer dúvida, estamos à disposição.`
+  },
+  {
+    key: 'completed',
+    label: 'Pós-atendimento',
+    description: 'Agradece e incentiva retorno depois do atendimento.',
+    subject: 'Obrigado pela preferência - {empresa}',
+    body: `Olá, {cliente}! Obrigado pela preferência.
+
+Seu atendimento na {empresa} foi marcado como concluído.
+
+Serviço: {servico}
+Data: {data}
+
+Foi um prazer atender você. Quando quiser, agende seu próximo horário por aqui: {link_agenda}`
+  },
+  {
+    key: 'reactivation',
+    label: 'Reativação',
+    description: 'Chama clientes sem retorno recente.',
+    subject: 'Vamos agendar seu próximo horário? - {empresa}',
+    body: `Olá, {cliente}! Tudo bem?
+
+Aqui é da {empresa}. Percebemos que já faz um tempo desde seu último atendimento.
+
+Quer que a gente veja um novo horário para {servico}?
+
+Você também pode agendar direto por aqui: {link_agenda}`
+  },
+  {
+    key: 'payment_pending',
+    label: 'Pagamento pendente',
+    description: 'Lembra pendência financeira sem tom agressivo.',
+    subject: 'Pendência do seu atendimento - {empresa}',
+    body: `Olá, {cliente}! Tudo bem?
+
+Identificamos uma pendência relacionada ao seu atendimento na {empresa}.
+
+Serviço: {servico}
+Data: {data}
+Horário: {horario}
+
+Fale com a gente pelo WhatsApp {whatsapp} para regularizar ou tirar dúvidas.`
+  },
+  {
+    key: 'welcome',
+    label: 'Boas-vindas',
+    description: 'Mensagem inicial para apresentar a agenda pública.',
+    subject: 'Boas-vindas à agenda da {empresa}',
+    body: `Olá, {cliente}! Boas-vindas à agenda da {empresa}.
+
+Por aqui você pode escolher serviço, profissional, data e horário com mais praticidade.
+
+Link da agenda: {link_agenda}
+WhatsApp: {whatsapp}
+Endereço: {endereco}`
+  },
+  {
+    key: 'received',
+    label: 'Solicitação recebida',
+    description: 'Confirma recebimento enquanto o pedido ainda está pendente.',
+    subject: 'Solicitação recebida - {empresa}',
+    body: `Olá, {cliente}! Tudo bem?
+
+Recebemos sua solicitação de agendamento na {empresa}.
+
+Serviço: {servico}
+Profissional: {profissional}
+Data: {data}
+Horário: {horario}
+
+Em breve retornaremos com a confirmação.`
+  }
+];
+
+const messageTemplateVariableKeys = ['{cliente}', '{empresa}', '{servico}', '{profissional}', '{data}', '{horario}', '{whatsapp}', '{link_agenda}', '{endereco}'];
+const bookingMessageTemplateMap = bookingMessageTemplates.reduce<Record<string, BookingMessageTemplate>>((map, template) => {
+  map[template.key] = template;
+  return map;
+}, {});
+
+function defaultMessageTemplateDrafts() {
+  return bookingMessageTemplates.reduce<Record<string, string>>((map, template) => {
+    map[template.key] = template.body;
+    return map;
+  }, {});
+}
+
+function messageTemplateStorageKey(slug: string) {
+  return `agendapro-message-templates:${slugify(slug || 'agenda')}`;
+}
+
+function normalizeBookingMessageTemplateKey(value: string): BookingTemplateKey {
+  const key = String(value || '').toLowerCase().replace(/-/g, '_');
+  if (key === 'post_attendance' || key === 'pos_atendimento' || key === 'post') return 'completed';
+  if (key === 'payment' || key === 'payment_pending') return 'payment_pending';
+  if (bookingMessageTemplateMap[key]) return key as BookingTemplateKey;
+  return 'confirmation';
+}
+
+function loadMessageTemplateDrafts(slug: string) {
+  const defaults = defaultMessageTemplateDrafts();
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(messageTemplateStorageKey(slug)) : '';
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== 'object') return defaults;
+    return { ...defaults, ...parsed };
+  } catch {
+    return defaults;
+  }
+}
+
 function slugify(value: string) {
   return value
     .normalize('NFD')
@@ -1215,6 +1397,8 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [bookingActionLoading, setBookingActionLoading] = useState('');
   const [communicationLoading, setCommunicationLoading] = useState('');
+  const [activeTemplateKey, setActiveTemplateKey] = useState<BookingTemplateKey>('confirmation');
+  const [messageTemplateDrafts, setMessageTemplateDrafts] = useState<Record<string, string>>(() => loadMessageTemplateDrafts(slug));
   const ownsLocal = Boolean(account && (account.publicSlug === slug || agenda?.slug === slug));
 
   const loadDashboard = async (silent = false) => {
@@ -1248,6 +1432,15 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
   useEffect(() => {
     loadDashboard(false);
   }, [slug]);
+  useEffect(() => {
+    setMessageTemplateDrafts(loadMessageTemplateDrafts(slug));
+    setActiveTemplateKey('confirmation');
+  }, [slug]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(messageTemplateStorageKey(slug), JSON.stringify(messageTemplateDrafts));
+    } catch {}
+  }, [slug, JSON.stringify(messageTemplateDrafts)]);
 
   if (!getClientToken() || !account) return <PublicShell><section className="page-hero"><Badge tone="amber">Área protegida</Badge><h1>Faça login para gerenciar esta agenda.</h1><p>Dashboards privados não podem ser acessados apenas pelo link.</p><div className="hero-actions" style={{ justifyContent: 'center' }}><a className="btn primary" href="#/conta/login">Entrar</a><a className="btn secondary" href="#/conta/cadastro">Criar conta</a></div></section></PublicShell>;
   if (!ownsLocal && !remote) return <ClientShell active="agenda"><article className="client-panel-card"><Badge tone="red">Acesso negado</Badge><h2>Você não tem permissão para acessar esta agenda.</h2><p>Entre com a conta dona da agenda ou volte para a sua central.</p><a className="btn primary full" href="#/conta/painel">Voltar ao meu painel</a></article></ClientShell>;
@@ -1466,89 +1659,49 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
     try { return new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR'); } catch { return value; }
   };
   const bookingTimeText = (item: any) => item?.requested_time || item?.time || '--:--';
-  const createBookingMessage = (item: any, template: string = 'confirmation') => {
-    const name = bookingCustomerName(item);
-    const serviceName = bookingServiceName(item);
-    const professionalName = bookingProfessionalName(item);
-    const dateText = bookingDateText(item);
-    const timeText = bookingTimeText(item);
-    const reason = item?.cancellation_reason || item?.reschedule_reason || '';
+  const bookingTemplateVariables = (item: any = {}) => {
+    const reason = item?.cancellation_reason || item?.reschedule_reason || item?.metadata?.reason || '';
     const previousDate = item?.previous_requested_date ? bookingDateText({ requested_date: item.previous_requested_date }) : '';
     const previousTime = item?.previous_requested_time || '';
-    if (template === 'received') return `Olá, ${name}! Tudo bem?
-
-Recebemos sua solicitação de agendamento na ${businessName}.
-
-Serviço: ${serviceName}
-Profissional: ${professionalName}
-Data: ${dateText}
-Horário: ${timeText}
-
-Em breve retornaremos com a confirmação.`;
-    if (template === 'cancellation') return `Olá, ${name}! Tudo bem?
-
-Seu agendamento na ${businessName} precisou ser cancelado.
-
-Serviço: ${serviceName}
-Data: ${dateText}
-Horário: ${timeText}${reason ? `
-Motivo: ${reason}` : ''}
-
-Podemos verificar uma nova opção de horário para você.`;
-    if (template === 'reschedule') return `Olá, ${name}! Tudo bem?
-
-Seu agendamento na ${businessName} foi remarcado.
-
-${previousDate || previousTime ? `Horário anterior: ${previousDate || 'data anterior'} às ${previousTime || '--:--'}
-` : ''}Novo horário: ${dateText} às ${timeText}
-Serviço: ${serviceName}
-Profissional: ${professionalName}${reason ? `
-Observação: ${reason}` : ''}`;
-    if (template === 'completed') return `Olá, ${name}! Obrigado pela preferência.
-
-Seu atendimento na ${businessName} foi marcado como concluído.
-
-Serviço: ${serviceName}
-Data: ${dateText}
-
-Foi um prazer atender você. Caso queira, podemos agendar seu próximo horário.`;
-    if (template === 'reminder') return `Olá, ${name}! Passando para lembrar do seu agendamento na ${businessName}.
-
-Serviço: ${serviceName}
-Profissional: ${professionalName}
-Data: ${dateText}
-Horário: ${timeText}
-
-Qualquer dúvida, estamos à disposição.`;
-    return `Olá, ${name}! Tudo bem?
-
-Seu agendamento foi confirmado na ${businessName}.
-
-Serviço: ${serviceName}
-Profissional: ${professionalName}
-Data: ${dateText}
-Horário: ${timeText}
-
-Qualquer dúvida, estamos à disposição.`;
+    return {
+      cliente: bookingCustomerName(item),
+      empresa: businessName,
+      servico: bookingServiceName(item),
+      profissional: bookingProfessionalName(item),
+      data: bookingDateText(item),
+      horario: bookingTimeText(item),
+      whatsapp: item?.customer_phone || item?.phone || businessWhatsapp || 'WhatsApp não informado',
+      link_agenda: bookingLink,
+      endereco: businessAddress || 'Endereço não informado',
+      motivo: reason || 'sem motivo informado',
+      data_anterior: previousDate || 'data anterior',
+      horario_anterior: previousTime || '--:--'
+    };
+  };
+  const renderBookingTemplate = (body: string, item: any) => {
+    const variables = bookingTemplateVariables(item);
+    return String(body || '').replace(/\{([a-zA-Z0-9_]+)\}/g, (match: string, key: string) => String((variables as Record<string, string>)[key] || match));
+  };
+  const createBookingMessage = (item: any, template: string = 'confirmation') => {
+    const templateKey = normalizeBookingMessageTemplateKey(template);
+    const fallbackBody = bookingMessageTemplateMap[templateKey]?.body || bookingMessageTemplateMap.confirmation.body;
+    return renderBookingTemplate(messageTemplateDrafts[templateKey] || fallbackBody, item);
   };
   const bookingMessageSubject = (item: any, template: string) => {
-    const serviceName = bookingServiceName(item);
-    if (template === 'cancellation') return `Agendamento cancelado — ${businessName}`;
-    if (template === 'reschedule') return `Agendamento remarcado — ${businessName}`;
-    if (template === 'completed') return `Atendimento concluído — ${businessName}`;
-    if (template === 'reminder') return `Lembrete do seu agendamento — ${businessName}`;
-    if (template === 'received') return `Solicitação recebida — ${businessName}`;
-    return `Agendamento confirmado — ${serviceName}`;
+    const templateKey = normalizeBookingMessageTemplateKey(template);
+    const fallbackSubject = bookingMessageTemplateMap[templateKey]?.subject || bookingMessageTemplateMap.confirmation.subject;
+    return renderBookingTemplate(fallbackSubject, item);
   };
   const registerBookingCommunication = async (item: any, channel: 'copy' | 'whatsapp' | 'email', template: string, message: string) => {
     if (!item?.id) return { ok: false, skipped: true, message: 'Agendamento sem ID.' } as any;
-    const key = `${item.id}:${channel}:${template}`;
+    const templateKey = normalizeBookingMessageTemplateKey(template);
+    const key = `${item.id}:${channel}:${templateKey}`;
     setCommunicationLoading(key);
     try {
       const response = await fetch('/api/client?action=send-booking-message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ slug, requestId: item.id, channel, template, message, subject: bookingMessageSubject(item, template) })
+        body: JSON.stringify({ slug, requestId: item.id, channel, template: templateKey, message, subject: bookingMessageSubject(item, templateKey) })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.ok) throw new Error(data?.message || 'Não foi possível registrar a comunicação.');
@@ -1590,7 +1743,7 @@ Qualquer dúvida, estamos à disposição.`;
     }
   };
   const navItems: Array<[string, ComponentType<{ size?: number }>]> = [
-    ['Início', BarChart3], ['Agendamentos', CalendarCheck], ['Onboarding', Rocket], ['Agenda', CalendarClock], ['Recepção', ClipboardList], ['Profissional', UserPlus], ['Clientes', UsersRound], ['Serviços', FileText], ['Equipe', UsersRound], ['Permissões', Lock], ['Identidade visual', Palette], ['Unidades', Building2], ['Disponibilidade', Clock], ['Lista de espera', ListChecks], ['Comunicação', MessageSquareText], ['Automações', Zap], ['IA Assistida', Bot], ['Página pública', QrCode], ['Financeiro', CreditCard], ['Relatórios', BarChart3], ['Segurança', ShieldCheck]
+    ['Início', BarChart3], ['Agendamentos', CalendarCheck], ['Onboarding', Rocket], ['Agenda', CalendarClock], ['Recepção', ClipboardList], ['Profissional', UserPlus], ['Clientes', UsersRound], ['Serviços', FileText], ['Equipe', UsersRound], ['Permissões', Lock], ['Identidade visual', Palette], ['Unidades', Building2], ['Disponibilidade', Clock], ['Lista de espera', ListChecks], ['Mensagens', MessageSquareText], ['Automações', Zap], ['IA Assistida', Bot], ['Página pública', QrCode], ['Financeiro', CreditCard], ['Relatórios', BarChart3], ['Segurança', ShieldCheck]
   ];
   const sampleTimes = ['08:00', '08:30', '09:00', '09:30', '10:30', '11:30', '14:00', '15:30', '16:30', '17:30'];
   const greeting = new Date().getHours() < 12 ? 'Bom dia' : new Date().getHours() < 18 ? 'Boa tarde' : 'Boa noite';
@@ -1601,12 +1754,60 @@ Qualquer dúvida, estamos à disposição.`;
     ['Profissional', 'Visualiza a própria agenda, atendimentos confirmados e dados essenciais do cliente.'],
     ['Financeiro', 'Acompanha receita estimada, pagamentos e status de plano.']
   ];
-  const messageTemplates = [
-    ['Confirmação', `Olá! Seu horário em ${businessName} foi confirmado.`],
-    ['Lembrete', `Passando para lembrar do seu atendimento em ${businessName}.`],
-    ['Remarcação', `Precisamos remarcar seu horário. Podemos verificar uma nova opção?`],
-    ['Pós-atendimento', `Obrigado pela preferência! Como foi sua experiência?`]
-  ];
+  const messageTemplates = bookingMessageTemplates;
+  const messagePreviewBooking = selectedBooking || filteredAppointments[0] || {
+    id: 'message-preview',
+    customer_name: 'Cliente exemplo',
+    customer_phone: businessWhatsapp,
+    customer_email: account.email,
+    service_name: primaryService,
+    professional_name: localTeam[0]?.name || 'Equipe responsável',
+    requested_date: todayKey,
+    requested_time: sampleTimes[2],
+    status: 'confirmed'
+  };
+  const activeTemplate = bookingMessageTemplateMap[activeTemplateKey] || bookingMessageTemplateMap.confirmation;
+  const activeTemplatePreview = createBookingMessage(messagePreviewBooking, activeTemplateKey);
+  const activeTemplateVariables = bookingTemplateVariables(messagePreviewBooking);
+  const bookingCommunicationHistory = (item: any) => {
+    const sources = [
+      item?.metadata?.communicationHistory,
+      item?.message_history,
+      item?.communication_log,
+      item?.metadata?.lastCommunication ? [item.metadata.lastCommunication] : []
+    ];
+    const seen = new Set<string>();
+    return sources.flatMap(source => Array.isArray(source) ? source : []).filter((event: any) => {
+      const marker = `${event?.at || ''}:${event?.channel || ''}:${event?.template || ''}:${event?.messagePreview || ''}`;
+      if (seen.has(marker)) return false;
+      seen.add(marker);
+      return true;
+    });
+  };
+  const selectedBookingCommunicationHistory = selectedBooking ? bookingCommunicationHistory(selectedBooking) : [];
+  const updateMessageTemplateDraft = (key: BookingTemplateKey, value: string) => {
+    setMessageTemplateDrafts(current => ({ ...current, [key]: value }));
+    setActiveTemplateKey(key);
+  };
+  const resetMessageTemplateDraft = (key: BookingTemplateKey) => {
+    const fallback = bookingMessageTemplateMap[key]?.body || bookingMessageTemplateMap.confirmation.body;
+    setMessageTemplateDrafts(current => ({ ...current, [key]: fallback }));
+    setActiveTemplateKey(key);
+    pushToast({ tone: 'success', title: 'Modelo restaurado', message: 'Texto padrão recuperado para este template.' });
+  };
+  const copyTemplateVariable = async (variable: string) => {
+    await navigator.clipboard?.writeText(variable);
+    pushToast({ tone: 'success', title: 'Variável copiada', message: `${variable} pronta para usar no modelo.` });
+  };
+  const copyTemplateMessage = async (key: BookingTemplateKey, item: any = messagePreviewBooking) => {
+    const message = createBookingMessage(item, key);
+    await navigator.clipboard?.writeText(message);
+    if (item?.id && item.id !== 'message-preview') {
+      try { await registerBookingCommunication(item, 'copy', key, message); } catch {}
+    }
+    pushToast({ tone: 'success', title: 'Mensagem copiada', message: 'Template preenchido com variáveis reais.' });
+  };
+  const openTemplateWhatsApp = async (key: BookingTemplateKey, item: any = messagePreviewBooking) => openBookingWhatsApp(item, key);
   const automations = [
     ['Lembrete automático', 'Enviar lembrete antes do atendimento.', 'Pronto para configurar'],
     ['Pesquisa de satisfação', 'Solicitar avaliação após conclusão.', 'Recomendado'],
@@ -2066,7 +2267,7 @@ Qualquer dúvida, estamos à disposição.`;
           <article className="business-panel quick-actions-panel">
             <h3>Ações rápidas</h3>
             <button onClick={() => setSection('Agendamentos')}><CalendarCheck size={18}/><span>Gerenciar agendamentos</span></button>
-            <button onClick={() => setSection('Comunicação')}><MessageSquareText size={18}/><span>Mensagens prontas</span></button>
+            <button onClick={() => setSection('Mensagens')}><MessageSquareText size={18}/><span>Mensagens prontas</span></button>
             <button onClick={() => setSection('Disponibilidade')}><Clock size={18}/><span>Ajustar horários</span></button>
             <button onClick={() => setSection('Onboarding')}><Rocket size={18}/><span>Ver prontidão</span></button>
           </article>
@@ -2179,19 +2380,19 @@ Qualquer dúvida, estamos à disposição.`;
 
       {section === 'Lista de espera' && <section className="real-dashboard-grid"><article className="real-panel large"><h3>Lista de espera</h3><p>Clientes que podem ser chamados caso surja uma vaga.</p>{pending.length ? pending.slice(0, 5).map(item => <div className="mini-dashboard-row" key={item.id}><ListChecks size={18}/><span><b>{item.customer_name}</b><small>{item.service_name || primaryService} • aguardando confirmação</small></span><button onClick={() => openWhatsApp(item.customer_phone, item.customer_name)}>Chamar</button></div>) : <div className="real-empty"><ListChecks/><b>Lista vazia</b><span>Solicitações pendentes também podem alimentar esta fila.</span></div>}</article><article className="real-panel"><h3>Automação sugerida</h3><p>Quando um horário for cancelado, chamar automaticamente o próximo interessado.</p><button className="btn secondary full" onClick={() => setSection('Automações')}>Configurar automação</button></article></section>}
 
-      {section === 'Comunicação' && <section className="communication-center-shell">
-        <article className="real-panel communication-hero-panel"><div><Badge tone="blue">Sprint 09</Badge><h3>Comunicação do agendamento</h3><p>Mensagens prontas para confirmação, lembrete, remarcação, cancelamento e pós-atendimento, com registro de auditoria quando copiadas, enviadas por WhatsApp ou processadas por e-mail.</p></div><button className="btn secondary compact" onClick={() => loadDashboard(true)}>Atualizar agendamentos</button></article>
+      {(section === 'Mensagens' || section === 'Comunicação') && <section className="communication-center-shell">
+        <article className="real-panel communication-hero-panel"><div><Badge tone="blue">v0.6.3.7</Badge><h3>Mensagens do agendamento</h3><p>Templates editáveis com variáveis reais para confirmação, remarcação, cancelamento, lembrete, pós-atendimento, reativação, pagamento pendente e boas-vindas.</p></div><button className="btn secondary compact" onClick={() => loadDashboard(true)}>Atualizar agendamentos</button></article>
         <div className="communication-grid">
           <article className="real-panel large"><div className="panel-heading"><div><h3>Clientes para contatar</h3><p>Use uma mensagem pronta e mantenha o histórico no próprio agendamento.</p></div><div className="real-search"><Search size={16}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar cliente" /></div></div>
-            <div className="communication-booking-list">{filteredAppointments.length ? filteredAppointments.slice(0, 12).map(item => { const statusKey = cleanStatus(item.status); const preferredTemplate = statusKey === 'cancelled' ? 'cancellation' : statusKey === 'rescheduled' ? 'reschedule' : statusKey === 'completed' ? 'completed' : statusKey === 'pending' ? 'received' : 'confirmation'; return <div className="communication-booking-row" key={item.id || item.customer_phone}><div><b>{item.customer_name || item.name || 'Cliente'}</b><span>{item.service_name || primaryService} • {item.requested_date || 'sem data'} às {item.requested_time || '--:--'}</span><small>{bookingStatusLabel(item.status)} • {item.customer_phone || item.phone || 'sem WhatsApp'} • {item.customer_email || 'sem e-mail'}</small></div><div><button onClick={() => copyBookingMessage(item, preferredTemplate)}>Copiar</button><button onClick={() => openBookingWhatsApp(item, preferredTemplate)}>WhatsApp</button><button onClick={() => sendBookingEmail(item, preferredTemplate)} disabled={communicationLoading === `${item.id}:email:${preferredTemplate}`}>{communicationLoading === `${item.id}:email:${preferredTemplate}` ? 'Enviando...' : 'E-mail'}</button></div></div>; }) : <div className="real-empty"><MessageSquareText/><b>Nenhum agendamento para comunicação</b><span>Quando clientes solicitarem horários, eles aparecerão aqui.</span></div>}</div>
+            <div className="communication-booking-list">{filteredAppointments.length ? filteredAppointments.slice(0, 12).map(item => { const statusKey = cleanStatus(item.status); const preferredTemplate = statusKey === 'cancelled' ? 'cancellation' : statusKey === 'rescheduled' ? 'reschedule' : statusKey === 'completed' ? 'completed' : statusKey === 'pending' ? 'received' : 'confirmation'; return <div className="communication-booking-row" key={item.id || item.customer_phone}><div><b>{item.customer_name || item.name || 'Cliente'}</b><span>{item.service_name || primaryService} • {item.requested_date || 'sem data'} às {item.requested_time || '--:--'}</span><small>{bookingStatusLabel(item.status)} • {item.customer_phone || item.phone || 'sem WhatsApp'} • {item.customer_email || 'sem e-mail'}</small></div><div><button onClick={() => { setSelectedBooking(item); setActiveTemplateKey(normalizeBookingMessageTemplateKey(preferredTemplate)); }}>Histórico</button><button onClick={() => copyBookingMessage(item, preferredTemplate)}>Copiar</button><button onClick={() => openBookingWhatsApp(item, preferredTemplate)}>WhatsApp</button><button onClick={() => sendBookingEmail(item, preferredTemplate)} disabled={communicationLoading === `${item.id}:email:${normalizeBookingMessageTemplateKey(preferredTemplate)}`}>{communicationLoading === `${item.id}:email:${normalizeBookingMessageTemplateKey(preferredTemplate)}` ? 'Enviando...' : 'E-mail'}</button></div></div>; }) : <div className="real-empty"><MessageSquareText/><b>Nenhum agendamento para comunicação</b><span>Quando clientes solicitarem horários, eles aparecerão aqui.</span></div>}</div>
           </article>
-          <article className="real-panel"><h3>Modelos rápidos</h3><p>Copie modelos gerais ou use os botões da lista para personalizar com dados reais do cliente.</p><div className="message-template-grid compact-message-grid">{messageTemplates.map(([title, text]) => <article key={title}><MessageSquareText/><h3>{title}</h3><p>{text}</p><button onClick={() => copy(text)}>Copiar modelo</button></article>)}</div></article>
+          <article className="real-panel message-template-pro-panel"><div className="panel-heading"><div><h3>Aba Mensagens</h3><p>Escolha um tipo, ajuste o texto e confira o preview preenchido antes de copiar ou abrir o WhatsApp.</p></div><Badge tone="green">{messageTemplates.length} modelos</Badge></div><div className="template-variable-row">{messageTemplateVariableKeys.map(variable => <button key={variable} type="button" onClick={() => copyTemplateVariable(variable)}>{variable}</button>)}</div><div className="message-template-tabs">{messageTemplates.map(template => <button key={template.key} type="button" className={activeTemplateKey === template.key ? 'active' : ''} onClick={() => setActiveTemplateKey(template.key)}><b>{template.label}</b><small>{template.description}</small></button>)}</div><div className="message-template-editor"><label><span>{activeTemplate.label}</span><textarea value={messageTemplateDrafts[activeTemplate.key] || activeTemplate.body} onChange={event => updateMessageTemplateDraft(activeTemplate.key, event.target.value)} /></label><div className="template-preview-box"><b>Preview</b><pre>{activeTemplatePreview}</pre><small>Variáveis: {Object.entries(activeTemplateVariables).filter(([key]) => messageTemplateVariableKeys.includes(`{${key}}`)).map(([key, value]) => `${key}: ${value}`).join(' • ')}</small></div><div className="template-action-row"><button type="button" onClick={() => copyTemplateMessage(activeTemplate.key, messagePreviewBooking)}><MessageSquareText size={15}/> Copiar mensagem</button><button type="button" onClick={() => openTemplateWhatsApp(activeTemplate.key, messagePreviewBooking)}><Send size={15}/> WhatsApp</button><button type="button" onClick={() => resetMessageTemplateDraft(activeTemplate.key)}><RefreshCcw size={15}/> Resetar padrão</button></div></div></article>
         </div>
       </section>}
 
       {section === 'Automações' && <section className="real-panel"><h3>Automações operacionais</h3><p>Fluxos preparados para reduzir trabalho manual da recepção.</p><div className="real-card-grid">{automations.map(([title, desc, status]) => <article key={title}><Zap/><h3>{title}</h3><p>{desc}</p><Badge tone={status === 'Operacional' ? 'green' : status === 'Recomendado' ? 'blue' : 'amber'}>{status}</Badge></article>)}</div></section>}
 
-      {section === 'IA Assistida' && <section className="real-dashboard-grid"><article className="real-panel large"><Badge tone="purple">IA Assistida</Badge><h3>Resumo inteligente da operação</h3><p>Com base nos dados atuais, a agenda possui {appointments.length} solicitação(ões), {pending.length} pendente(s), {confirmed.length} confirmada(s) e {conversion}% de conversão estimada.</p><ul className="real-action-list"><li><Bot size={18}/> Priorize confirmações pendentes antes de divulgar novos horários.</li><li><Wand2 size={18}/> Use mensagens prontas para reduzir tempo de resposta.</li><li><BarChart3 size={18}/> Receita estimada atual: {currency(revenue)}.</li><li><Rocket size={18}/> Divulgue o link {publicUrlShort} nos canais do negócio.</li></ul></article><article className="real-panel"><h3>Comandos rápidos</h3><button className="btn secondary full" onClick={() => setSection('Solicitações')}>Ver pendências</button><button className="btn secondary full" onClick={() => setSection('Comunicação')}>Copiar mensagens</button><button className="btn primary full" onClick={() => copy(bookingLink)}>Copiar link público</button></article></section>}
+      {section === 'IA Assistida' && <section className="real-dashboard-grid"><article className="real-panel large"><Badge tone="purple">IA Assistida</Badge><h3>Resumo inteligente da operação</h3><p>Com base nos dados atuais, a agenda possui {appointments.length} solicitação(ões), {pending.length} pendente(s), {confirmed.length} confirmada(s) e {conversion}% de conversão estimada.</p><ul className="real-action-list"><li><Bot size={18}/> Priorize confirmações pendentes antes de divulgar novos horários.</li><li><Wand2 size={18}/> Use mensagens prontas para reduzir tempo de resposta.</li><li><BarChart3 size={18}/> Receita estimada atual: {currency(revenue)}.</li><li><Rocket size={18}/> Divulgue o link {publicUrlShort} nos canais do negócio.</li></ul></article><article className="real-panel"><h3>Comandos rápidos</h3><button className="btn secondary full" onClick={() => setSection('Agendamentos')}>Ver pendências</button><button className="btn secondary full" onClick={() => setSection('Mensagens')}>Copiar mensagens</button><button className="btn primary full" onClick={() => copy(bookingLink)}>Copiar link público</button></article></section>}
 
       {section === 'Página pública' && <section className="real-dashboard-grid"><article className="real-panel large"><Badge tone="blue">White-label</Badge><h3>Páginas do negócio</h3><p>Esses links pertencem ao cliente e não levam para a landing comercial do AgendaPro.</p><div className="presentation-links-card"><div><b>Apresentação</b><span>{presentationLink}</span><a className="btn secondary full" href={presentationLink}>Abrir</a><button className="btn secondary full" onClick={() => copy(presentationLink)}>Copiar</button></div><div><b>Agendamento</b><span>{bookingLink}</span><a className="btn secondary full" href={bookingLink}>Abrir</a><button className="btn secondary full" onClick={() => copy(bookingLink)}>Copiar</button></div></div></article><article className="real-panel public-preview"><span>{businessName.slice(0, 2).toUpperCase()}</span><h3>{businessName}</h3><p>{businessAddress}</p><small>{businessWhatsapp || 'WhatsApp não informado'}</small><a className="btn primary full" href={bookingLink}>Agendar agora</a></article></section>}
 
@@ -2267,7 +2468,7 @@ Qualquer dúvida, estamos à disposição.`;
       <h3>Histórico</h3>
       <div className="booking-history-list">{Array.isArray(selectedBooking.metadata?.history) && selectedBooking.metadata.history.length ? selectedBooking.metadata.history.slice().reverse().map((event: any, index: number) => <span key={index}><b>{event.action || event.nextStatus || 'ação'}</b><small>{event.at ? new Date(event.at).toLocaleString('pt-BR') : 'sem data'} • {event.by || 'sistema'}</small></span>) : <span><b>Recebido</b><small>Este agendamento ainda não possui histórico detalhado.</small></span>}</div>
       <h3>Comunicação</h3>
-      <div className="booking-history-list communication-history-list">{Array.isArray(selectedBooking.metadata?.communicationHistory) && selectedBooking.metadata.communicationHistory.length ? selectedBooking.metadata.communicationHistory.slice().reverse().map((event: any, index: number) => <span key={index}><b>{event.template || event.channel || 'mensagem'}</b><small>{event.at ? new Date(event.at).toLocaleString('pt-BR') : 'sem data'} • {event.channel || 'sistema'} • {event.status || 'registrado'}</small></span>) : <span><b>Sem mensagens registradas</b><small>Copie, envie por WhatsApp ou processe por e-mail para registrar comunicação.</small></span>}</div>
+      <div className="booking-history-list communication-history-list">{selectedBookingCommunicationHistory.length ? selectedBookingCommunicationHistory.slice().reverse().map((event: any, index: number) => <span key={index}><b>{bookingMessageTemplateMap[normalizeBookingMessageTemplateKey(event.template)]?.label || event.template || event.channel || 'mensagem'}</b><small>{event.at ? new Date(event.at).toLocaleString('pt-BR') : 'sem data'} • {event.channel || 'sistema'} • {event.status || 'registrado'}</small></span>) : <span><b>Sem mensagens registradas</b><small>Copie, envie por WhatsApp ou processe por e-mail para registrar comunicação.</small></span>}</div>
       <pre>{bookingSummaryText(selectedBooking, businessName)}</pre>
     </aside></div>}
   {selectedCustomer && <div className="detail-drawer-backdrop booking-drawer-backdrop" onClick={() => setSelectedCustomer(null)}><aside className="detail-drawer booking-detail-drawer customer-detail-drawer" onClick={event => event.stopPropagation()}>

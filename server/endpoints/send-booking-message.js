@@ -1,10 +1,14 @@
 const { applySecurityHeaders, readJsonBody, cleanText, requireClient, supabaseRequest, handleError, logActivity } = require('../_security');
 
 const allowedChannels = new Set(['copy', 'whatsapp', 'email']);
-const allowedTemplates = new Set(['received', 'confirmation', 'cancellation', 'reschedule', 'completed', 'reminder', 'custom']);
+const allowedTemplates = new Set(['received', 'confirmation', 'cancellation', 'reschedule', 'completed', 'reminder', 'reactivation', 'payment_pending', 'welcome', 'custom']);
 function nowIso() { return new Date().toISOString(); }
 function htmlEscape(value) { return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
 function ownsAgenda(agenda, session) { return Boolean((agenda.client_account_id && agenda.client_account_id === session.accountId) || (agenda.company_id && session.companyId && agenda.company_id === session.companyId) || String(agenda.owner_email || agenda.email || '').toLowerCase() === String(session.email || '').toLowerCase()); }
+function shouldFallbackToMetadata(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('message_history') || message.includes('communication_log') || message.includes('schema cache') || message.includes('column');
+}
 
 async function sendResendEmail({ to, subject, message, businessName }) {
   const apiKey = process.env.RESEND_API_KEY;
@@ -53,9 +57,17 @@ module.exports = async function handler(req, res) {
     const communicationItem = { at: timestamp, by: session.email, channel, template, subject, status: delivery.sent ? 'sent_or_triggered' : delivery.skipped ? 'skipped' : 'registered', provider: delivery.provider || null, providerId: delivery.providerId || null, reason: delivery.reason || null, messagePreview: message.slice(0, 240) };
     const messageHistory = [...(Array.isArray(current.message_history) ? current.message_history : []), communicationItem];
     const communicationLog = [...(Array.isArray(current.communication_log) ? current.communication_log : []), communicationItem];
-    const metadata = { ...(current.metadata || {}), lastCommunication: communicationItem };
+    const communicationHistory = [...(Array.isArray(current.metadata?.communicationHistory) ? current.metadata.communicationHistory : []), communicationItem];
+    const metadata = { ...(current.metadata || {}), lastCommunication: communicationItem, communicationHistory };
 
-    const updated = await supabaseRequest(`/rest/v1/agendapro_public_booking_requests?id=eq.${encodeURIComponent(requestId)}&agenda_slug=eq.${encodeURIComponent(slug)}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ metadata, message_history: messageHistory, communication_log: communicationLog, updated_at: timestamp }) });
+    let updated;
+    try {
+      updated = await supabaseRequest(`/rest/v1/agendapro_public_booking_requests?id=eq.${encodeURIComponent(requestId)}&agenda_slug=eq.${encodeURIComponent(slug)}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ metadata, message_history: messageHistory, communication_log: communicationLog, updated_at: timestamp }) });
+    } catch (error) {
+      if (!shouldFallbackToMetadata(error)) throw error;
+      updated = await supabaseRequest(`/rest/v1/agendapro_public_booking_requests?id=eq.${encodeURIComponent(requestId)}&agenda_slug=eq.${encodeURIComponent(slug)}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ metadata, updated_at: timestamp }) });
+      delivery = { ...delivery, metadataFallback: true };
+    }
     const request = Array.isArray(updated) ? updated[0] : updated;
 
     await logActivity({ accountId: session.accountId, companyId: session.companyId, action: `booking_message_${channel}`, title: channel === 'email' ? 'E-mail de agendamento processado' : channel === 'whatsapp' ? 'WhatsApp de agendamento acionado' : 'Mensagem de agendamento copiada', description: `${session.email} registrou comunicação ${channel} para o agendamento ${requestId}.`, severity: delivery.skipped ? 'warning' : 'info', metadata: { slug, requestId, channel, template, delivery } });
