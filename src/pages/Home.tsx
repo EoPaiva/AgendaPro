@@ -1833,6 +1833,29 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
     slug
   } as AgendaDraft;
   const publicationReadiness = getAgendaReadiness(readinessAgenda, account);
+  const hasBusinessBasics = Boolean(String(businessName || '').trim() && String(businessSegment || '').trim() && String(businessDescription || '').trim());
+  const hasPublicContact = Boolean(String(businessWhatsapp || account.whatsapp || '').replace(/\D/g, '').length >= 10);
+  const hasFirstService = activeLocalServices.length > 0;
+  const hasFirstProfessional = activeLocalTeam.length > 0;
+  const hasWorkingSchedule = scheduleHasEnabledPeriod(localScheduleConfig);
+  const hasPublicVisual = Boolean(String(sourceAgenda?.visual?.logoUrl || sourceAgenda?.theme?.logo_url || sourceAgenda?.visual?.bannerUrl || sourceAgenda?.theme?.banner_url || sourceAgenda?.visual?.welcome || sourceAgenda?.visual?.slogan || '').trim());
+  const businessOnboardingSteps = [
+    { key: 'account', title: 'Conta criada', description: 'Cliente e negócio já têm acesso ao AgendaPro.', ok: true, progress: 0, action: 'Ver conta', href: '#/conta/painel' },
+    { key: 'business', title: 'Completar dados do negócio', description: hasBusinessBasics ? 'Nome, segmento e descrição prontos.' : 'Complete nome, segmento e descrição pública.', ok: hasBusinessBasics, progress: 15, action: 'Completar dados', href: '#/conta/criar-agenda' },
+    { key: 'contact', title: 'Definir contato público', description: hasPublicContact ? 'WhatsApp público pronto.' : 'Informe um WhatsApp válido para clientes.', ok: hasPublicContact, progress: 15, action: 'Definir contato', href: '#/conta/criar-agenda' },
+    { key: 'service', title: 'Criar primeiro serviço', description: hasFirstService ? `${activeLocalServices.length} serviço(s) ativo(s).` : 'Cadastre pelo menos um serviço ativo.', ok: hasFirstService, progress: 30, action: 'Criar serviço', href: '#/conta/criar-agenda' },
+    { key: 'professional', title: 'Criar primeiro profissional', description: hasFirstProfessional ? `${activeLocalTeam.length} profissional(is) ativo(s).` : 'Adicione quem atende na agenda pública.', ok: hasFirstProfessional, progress: 45, action: 'Criar profissional', href: '#/conta/criar-agenda' },
+    { key: 'schedule', title: 'Configurar horários', description: hasWorkingSchedule ? 'Horários liberados para agendamento.' : 'Ative dias e períodos de atendimento.', ok: hasWorkingSchedule, progress: 60, action: 'Configurar horários', href: '#/conta/criar-agenda' },
+    { key: 'visual', title: 'Personalizar página pública', description: hasPublicVisual ? 'Página pública personalizada.' : 'Ajuste logo, boas-vindas ou identidade visual.', ok: hasPublicVisual, progress: 75, action: 'Personalizar página', href: '#/conta/criar-agenda' },
+    { key: 'review', title: 'Revisar checklist de publicação', description: publicationReadiness.canPublish ? 'Checklist pronto para publicar.' : `${publicationReadiness.missing.filter(item => item.required).length} pendência(s) obrigatória(s).`, ok: publicationReadiness.canPublish, progress: 90, action: 'Revisar checklist', href: '#/conta/criar-agenda' },
+    { key: 'publish', title: 'Publicar agenda', description: published ? 'Agenda publicada e disponível.' : 'Publique para liberar o link final.', ok: Boolean(published), progress: 100, action: publicationReadiness.canPublish ? 'Publicar agora' : 'Corrigir pendências', href: '#/conta/criar-agenda' },
+    { key: 'share', title: 'Copiar link público', description: published ? publicUrlShort : 'O link aparece depois da publicação.', ok: Boolean(published), progress: 100, action: 'Copiar link', href: bookingLink }
+  ];
+  const businessOnboardingProgress = published ? 100 : Math.max(0, ...businessOnboardingSteps.filter(item => item.ok).map(item => item.progress));
+  const businessOnboardingStage = businessOnboardingProgress >= 100 ? 'Agenda publicada' : businessOnboardingProgress >= 90 ? 'Pronta para publicar' : businessOnboardingProgress >= 75 ? 'Página personalizada' : businessOnboardingProgress >= 60 ? 'Horários configurados' : businessOnboardingProgress >= 45 ? 'Profissional criado' : businessOnboardingProgress >= 30 ? 'Serviço criado' : businessOnboardingProgress >= 15 ? 'Dados básicos' : 'Conta criada';
+  const nextBusinessOnboardingStep = businessOnboardingSteps.find(item => !item.ok && item.key !== 'share') || businessOnboardingSteps[businessOnboardingSteps.length - 1];
+  const showGuidedBusinessOnboarding = !published || appointments.length === 0;
+  const hideEmptyBusinessMetrics = !published && appointments.length === 0;
   const activePlan = ['approved', 'active', 'trial'].includes(String(account.paymentStatus || account.subscriptionStatus || '').toLowerCase()) || ['active', 'trial'].includes(String(account.subscriptionStatus || '').toLowerCase());
   const planBadgeTone = activePlan ? 'green' : ['pending', 'manual_pending', 'under_review'].includes(String(account.paymentStatus || '').toLowerCase()) ? 'amber' : 'red';
   const planHeadline = activePlan ? 'Plano liberado' : ['pending', 'manual_pending', 'under_review'].includes(String(account.paymentStatus || '').toLowerCase()) ? 'Pagamento em análise' : 'Acesso limitado';
@@ -2166,6 +2189,10 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
       </header>
 
       {section === 'Início' && <>
+        {showGuidedBusinessOnboarding && <section className="guided-business-onboarding-card">
+          <div className="guided-onboarding-copy"><Badge tone={published ? 'green' : publicationReadiness.tone}>Onboarding empresarial</Badge><h2>{businessOnboardingStage}</h2><p>{nextBusinessOnboardingStep.ok ? 'Sua agenda está pronta para operar. Divulgue o link e acompanhe os primeiros agendamentos.' : nextBusinessOnboardingStep.description}</p><div className="guided-onboarding-progress"><i style={{ width: `${businessOnboardingProgress}%` }} /></div><small>{businessOnboardingProgress}% concluído · próxima ação: {nextBusinessOnboardingStep.title}</small></div>
+          <div className="guided-onboarding-actions"><a className="btn primary" href={nextBusinessOnboardingStep.href}>{nextBusinessOnboardingStep.action}</a><button className="btn secondary" onClick={() => setSection('Onboarding')}>Ver checklist</button>{published && <button className="btn secondary" onClick={() => copy(bookingLink)}>Copiar link</button>}</div>
+        </section>}
         <section className="business-dashboard-hero">
           <div className="business-hero-copy">
             <span className="eyebrow"><Sparkles size={16}/> Painel executivo da empresa</span>
@@ -2212,7 +2239,13 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
           </article>
         </section>
 
-        <motion.section className="visual-intelligence-board" {...fade}>
+        {hideEmptyBusinessMetrics && <section className="business-onboarding-preview-grid">
+          <article><Eye size={22}/><h3>Prévia pública</h3><p>{businessName}</p><small>{businessAddress}</small><a className="btn secondary full" href={presentationLink} target="_blank" rel="noopener noreferrer">Ver prévia</a></article>
+          <article><Rocket size={22}/><h3>Próxima ação</h3><p>{nextBusinessOnboardingStep.title}</p><small>{nextBusinessOnboardingStep.description}</small><a className="btn primary full" href={nextBusinessOnboardingStep.href}>{nextBusinessOnboardingStep.action}</a></article>
+          <article><CheckCircle2 size={22}/><h3>Publicação guiada</h3><p>{publicationReadiness.completed} de {publicationReadiness.total} pontos concluídos.</p><small>{publicationReadiness.label}</small><button className="btn secondary full" onClick={() => setSection('Onboarding')}>Abrir checklist</button></article>
+        </section>}
+
+        <motion.section className={`visual-intelligence-board ${hideEmptyBusinessMetrics ? 'is-hidden' : ''}`} {...fade}>
           <div className="visual-intelligence-head">
             <span className="eyebrow"><Activity size={16}/> Inteligência visual</span>
             <h3>Dados rápidos para decidir sem esforço.</h3>
@@ -2282,7 +2315,12 @@ function PrivateAgendaDashboardPage({ route }: { route: string }) {
         </section>
       </>}
 
-      {section === 'Onboarding' && <section className="smart-onboarding-grid"><article className="real-panel smart-publication-panel"><div className="panel-heading"><div><Badge tone={publicationReadiness.tone}>Sprint 11</Badge><h3>Publicação inteligente</h3><p>O AgendaPro analisa a agenda antes de liberar o link público, evitando páginas sem serviço, profissional, horário ou contato.</p></div><strong className={`publication-score ${publicationReadiness.status}`}>{publicationReadiness.score}%</strong></div><div className="smart-publish-progress"><i style={{ width: `${publicationReadiness.score}%` }} /></div><div className="publication-status-line"><b>{publicationReadiness.label}</b><span>{publicationReadiness.canPublish ? 'Todos os itens obrigatórios estão prontos.' : `${publicationReadiness.missing.filter(item => item.required).length} pendência(s) obrigatória(s).`}</span></div><div className="smart-publish-list dashboard-mode">{publicationReadiness.issues.map(item => <a key={item.key} className={item.ok ? 'done' : item.required ? 'required' : ''} href="#/conta/criar-agenda"><span>{item.ok ? <CheckCircle2 size={17}/> : <AlertTriangle size={17}/>}</span><b>{item.title}</b><small>{item.description}</small>{!item.ok && <em>{item.actionLabel}</em>}</a>)}</div></article><article className="real-panel"><h3>Próxima melhor ação</h3><p>{!publicationReadiness.canPublish ? 'Corrija as pendências obrigatórias antes de divulgar a agenda.' : !published ? 'A agenda está pronta. Publique para liberar os links.' : appointments.length ? 'Confirme as solicitações pendentes.' : 'Divulgue o link público para receber os primeiros agendamentos.'}</p><a className="btn primary full" href={!published ? '#/conta/criar-agenda' : bookingLink}>{!published ? (publicationReadiness.canPublish ? 'Publicar agenda' : 'Corrigir pendências') : 'Abrir agendamento'}</a><a className="btn secondary full" href={presentationLink} target="_blank" rel="noopener noreferrer">Ver prévia pública</a></article><article className="real-panel"><Badge tone="blue">Setup operacional</Badge><h3>Checklist geral</h3><div className="dashboard-step-list compact">{onboardingSteps.map(([title, desc, ok], index) => <div key={String(title)} className={ok ? 'done' : ''}><strong>{String(index + 1).padStart(2, '0')}</strong><span><b>{title}</b><small>{desc}</small></span><CheckCircle2 size={20}/></div>)}</div></article></section>}
+      {section === 'Onboarding' && <section className="guided-onboarding-section">
+        <article className="real-panel smart-publication-panel"><div className="panel-heading"><div><Badge tone={publicationReadiness.tone}>v0.6.3.8</Badge><h3>Onboarding empresarial</h3><p>Configure a empresa em passos claros: dados, contato, serviços, equipe, horários, página pública, revisão e publicação.</p></div><strong className={`publication-score ${publicationReadiness.status}`}>{businessOnboardingProgress}%</strong></div><div className="smart-publish-progress"><i style={{ width: `${businessOnboardingProgress}%` }} /></div><div className="publication-status-line"><b>{businessOnboardingStage}</b><span>{nextBusinessOnboardingStep.ok ? 'Fluxo guiado concluído. Acompanhe operação e divulgue o link.' : nextBusinessOnboardingStep.description}</span></div><div className="guided-business-checklist">{businessOnboardingSteps.map((item, index) => <a key={item.key} className={item.ok ? 'done' : item.key === nextBusinessOnboardingStep.key ? 'current' : ''} href={item.href}><strong>{String(index + 1).padStart(2, '0')}</strong><span><b>{item.title}</b><small>{item.description}</small></span>{item.ok ? <CheckCircle2 size={19}/> : <ArrowRight size={18}/>}</a>)}</div></article>
+        <article className="real-panel"><h3>Próxima melhor ação</h3><p>{nextBusinessOnboardingStep.ok ? 'Divulgue o link público e acompanhe os primeiros agendamentos.' : nextBusinessOnboardingStep.description}</p><a className="btn primary full" href={nextBusinessOnboardingStep.href}>{nextBusinessOnboardingStep.action}</a><a className="btn secondary full" href={presentationLink} target="_blank" rel="noopener noreferrer">Ver prévia pública</a>{published && <button className="btn secondary full" onClick={() => copy(bookingLink)}>Copiar link público</button>}</article>
+        <article className="real-panel onboarding-public-preview"><Badge tone="blue">Preview pública</Badge><h3>{businessName}</h3><p>{businessDescription}</p><small>{businessAddress}</small><div className="preview-services compact">{activeLocalServices.slice(0, 3).map((service: any) => <span key={service.id || service.name}>{service.name}</span>)}{!activeLocalServices.length && <span>Serviços ainda não cadastrados</span>}</div><a className="btn secondary full" href={bookingLink} target="_blank" rel="noopener noreferrer">Abrir agenda</a></article>
+        <article className="real-panel"><Badge tone="green">Setup operacional</Badge><h3>Checklist geral</h3><div className="dashboard-step-list compact">{onboardingSteps.map(([title, desc, ok], index) => <div key={String(title)} className={ok ? 'done' : ''}><strong>{String(index + 1).padStart(2, '0')}</strong><span><b>{title}</b><small>{desc}</small></span><CheckCircle2 size={20}/></div>)}</div></article>
+      </section>}
 
       {section === 'Agendamentos' && <section className="booking-management-shell">
         <div className="booking-management-hero">
@@ -2802,6 +2840,8 @@ function AgendaBuilderPage() {
   });
   const publicLink = `${window.location.origin}${window.location.pathname}#/agendar/${agenda.slug}`;
   const readiness = useMemo(() => getAgendaReadiness(agenda, account), [JSON.stringify(agenda), account?.email, account?.whatsapp, account?.publicSlug]);
+  const builderNextIssue = readiness.missing.find(item => item.required) || readiness.missing[0];
+  const builderStageLabel = readiness.canPublish ? 'Pronta para publicar' : builderNextIssue?.title || 'Conta criada';
   const updateBusiness = (key: keyof AgendaDraft['business'], value: string) => setAgenda(current => ({ ...current, business: { ...current.business, [key]: value }, slug: key === 'name' ? slugify(value) : current.slug }));
   const updateVisual = (key: keyof AgendaDraft['visual'], value: string) => setAgenda(current => ({ ...current, visual: { ...current.visual, [key]: value } }));
   const updateConversion = (key: keyof NonNullable<AgendaDraft['conversion']>, value: string) => setAgenda(current => ({ ...current, conversion: { ...(current.conversion || {}), [key]: value } }));
@@ -2847,6 +2887,7 @@ function AgendaBuilderPage() {
   if (!allowed) return <PublicShell><section className="page-hero plan-blocked-page"><Badge tone={access.tone}>Acesso bloqueado</Badge><h1>{access.title}</h1><p>{access.message}</p><div className="plan-access-checklist centered">{access.checklist.map((item, index) => <span key={item}><b>{String(index + 1).padStart(2, '0')}</b>{item}</span>)}</div><div className="hero-actions" style={{ justifyContent: 'center' }}><a className="btn primary" href={access.actionHref}>{access.actionLabel}</a><a className="btn secondary" href="#/conta/painel">Voltar ao painel</a></div></section></PublicShell>;
   const steps = ['Negócio', 'Visual', 'Serviços', 'Equipe', 'Horários', 'Regras', 'Publicar'];
   return <ClientShell active="agenda"><div className="builder-head"><div><Badge tone="green">Criador de AgendaPro</Badge><h1>Criar ou editar minha agenda.</h1><p>Configure as informações que serão usadas na página pública do cliente.</p></div><div className="builder-progress">{steps.map((label, index) => <button key={label} className={step === index ? 'active' : ''} onClick={() => setStep(index)}>{index + 1}</button>)}</div></div>
+    <section className="builder-guided-progress"><div><Badge tone={readiness.tone}>Onboarding</Badge><h2>{builderStageLabel}</h2><p>{readiness.canPublish ? 'Checklist completo. Revise e publique para liberar o link público.' : builderNextIssue?.description || 'Continue preenchendo os dados principais da agenda.'}</p></div><strong>{readiness.score}%</strong><div className="smart-publish-progress"><i style={{ width: `${readiness.score}%` }} /></div><button className="btn secondary compact" onClick={() => builderNextIssue?.step !== undefined ? setStep(Number(builderNextIssue.step)) : setStep(Math.min(steps.length - 1, step + 1))}>Continuar configuração</button></section>
     <section className="agenda-builder-grid"><article className="builder-card">
       {step === 0 && <><h2>Dados do negócio</h2><div className="checkout-form-grid"><label><span>Nome</span><input value={agenda.business.name} onChange={e => updateBusiness('name', e.target.value)} /></label><label><span>Segmento</span><input value={agenda.business.segment} onChange={e => updateBusiness('segment', e.target.value)} /></label><label><span>WhatsApp</span><input value={agenda.business.whatsapp} onChange={e => updateBusiness('whatsapp', e.target.value)} /></label><label><span>Endereço</span><input value={agenda.business.address} onChange={e => updateBusiness('address', e.target.value)} /></label></div><textarea className="field" value={agenda.business.description} onChange={e => updateBusiness('description', e.target.value)} placeholder="Descrição do negócio" /></>}
       {step === 1 && <><h2>Identidade visual</h2><p className="builder-premium-note">Personalize a vitrine pública com cores, logo, capa, mensagem comercial e contatos de confiança. Tudo é salvo junto com a agenda, sem mexer no core do Supabase.</p><div className="checkout-form-grid"><label><span>Cor principal</span><input value={agenda.visual.primaryColor} onChange={e => updateVisual('primaryColor', e.target.value)} /></label><label><span>Cor secundária</span><input value={agenda.visual.secondaryColor} onChange={e => updateVisual('secondaryColor', e.target.value)} /></label><label><span>Cor de destaque</span><input value={agenda.visual.accentColor} onChange={e => updateVisual('accentColor', e.target.value)} /></label><label><span>Logo URL</span><input value={agenda.visual.logoUrl} onChange={e => updateVisual('logoUrl', e.target.value)} placeholder="https://.../logo.png" /></label><label><span>Banner / capa URL</span><input value={agenda.visual.bannerUrl || ''} onChange={e => updateVisual('bannerUrl', e.target.value)} placeholder="https://.../capa.jpg" /></label><label><span>Instagram</span><input value={agenda.visual.instagram || ''} onChange={e => updateVisual('instagram', e.target.value)} placeholder="@seunegocio" /></label><label><span>Site</span><input value={agenda.visual.siteUrl || ''} onChange={e => updateVisual('siteUrl', e.target.value)} placeholder="https://seusite.com" /></label><label><span>Mensagem de boas-vindas</span><input value={agenda.visual.welcome || ''} onChange={e => updateVisual('welcome', e.target.value)} placeholder="Bem-vindo à nossa agenda online." /></label></div><textarea className="field" value={agenda.visual.slogan} onChange={e => updateVisual('slogan', e.target.value)} placeholder="Slogan / chamada comercial" /><div className="conversion-builder-box"><h3>Prova de confiança pública</h3><div className="checkout-form-grid"><label><span>Título comercial opcional</span><input value={agenda.conversion?.headline || ''} onChange={e => updateConversion('headline', e.target.value)} placeholder={agenda.business.name || 'Nome do negócio'} /></label><label><span>Subtítulo de valor</span><input value={agenda.conversion?.subtitle || ''} onChange={e => updateConversion('subtitle', e.target.value)} placeholder="Agende online e aguarde confirmação pelo WhatsApp" /></label><label><span>Anos de experiência</span><input value={agenda.conversion?.experienceYears || ''} onChange={e => updateConversion('experienceYears', e.target.value)} placeholder="Ex: 5" /></label><label><span>Atendimentos estimados</span><input value={agenda.conversion?.estimatedAppointments || ''} onChange={e => updateConversion('estimatedAppointments', e.target.value)} placeholder="Ex: 1200+" /></label></div><textarea className="field" value={conversionText(agenda.conversion?.benefits)} onChange={e => updateConversion('benefits', e.target.value)} placeholder="Benefícios, um por linha" /><textarea className="field" value={conversionText(agenda.conversion?.differentials)} onChange={e => updateConversion('differentials', e.target.value)} placeholder="Diferenciais, um por linha" /><textarea className="field" value={conversionText(agenda.conversion?.trustBadges)} onChange={e => updateConversion('trustBadges', e.target.value)} placeholder="Selos de confiança, um por linha" /><textarea className="field" value={conversionText(agenda.conversion?.testimonials)} onChange={e => updateConversion('testimonials', e.target.value)} placeholder="Depoimentos: texto — autor" /></div></>}
@@ -3493,6 +3534,11 @@ type DevCommercialRow = {
   pending: string[];
   risk: 'success' | 'warning' | 'danger';
   filterTokens: string[];
+  onboardingStatus: string;
+  onboardingStage: string;
+  onboardingScore: number;
+  onboardingBlockedDays: number;
+  onboardingAlert: string;
 };
 
 function cleanDevStatus(value: any) {
@@ -3524,6 +3570,17 @@ function devDateAgeDays(value: any) {
   const time = new Date(value).getTime();
   if (Number.isNaN(time)) return Number.POSITIVE_INFINITY;
   return Math.floor((Date.now() - time) / 86400000);
+}
+
+function devOnboardingStage(score: number, published: boolean) {
+  if (published || score >= 100) return 'Agenda publicada';
+  if (score >= 90) return 'Pronta para publicar';
+  if (score >= 75) return 'Página personalizada';
+  if (score >= 60) return 'Horários configurados';
+  if (score >= 45) return 'Profissional criado';
+  if (score >= 30) return 'Serviço criado';
+  if (score >= 15) return 'Dados básicos';
+  return 'Conta criada';
 }
 
 function devSameEntity(item: any, row: { account?: any; company?: any; agenda?: any; email?: string }) {
@@ -3561,15 +3618,24 @@ function buildDevCommercialRows(rows: any): DevCommercialRow[] {
     const planStatus = company?.subscription_status || account?.subscription_status || company?.status || account?.status || 'pending';
     const paymentStatus = paymentPool[0]?.status || company?.payment_status || account?.payment_status || 'pending';
     const agendaStatus = agenda?.published || agenda?.is_published || agenda?.status === 'published' ? 'published' : agenda?.status || 'draft';
+    const publishedAgenda = ['published', 'active'].includes(cleanDevStatus(agendaStatus));
     const lastAppointmentTime = devLatestDate(appointments, ['requested_date', 'created_at', 'updated_at']);
     const lastActivityTime = Math.max(lastAppointmentTime, devLatestDate(logs), devLatestDate(paymentPool));
+    const hasAgendaRecord = Boolean(agenda?.id || agenda?.slug || agenda?.public_slug);
+    const rawOnboardingScore = Number(company?.readiness_score ?? account?.readiness_score ?? agenda?.readiness_score ?? 0);
+    const onboardingScore = publishedAgenda ? 100 : Math.max(0, Math.min(90, rawOnboardingScore || (hasAgendaRecord ? 60 : devIsActiveStatus(planStatus) ? 20 : 10)));
+    const onboardingStatus = company?.onboarding_status || account?.onboarding_status || agenda?.onboarding_status || (publishedAgenda ? 'published' : hasAgendaRecord ? 'draft' : 'account_created');
+    const onboardingBlockedDays = publishedAgenda ? 0 : devDateAgeDays(lastActivityTime || company?.created_at || account?.created_at || agenda?.created_at);
+    const onboardingStage = devOnboardingStage(onboardingScore, publishedAgenda);
+    const onboardingAlert = publishedAgenda ? '' : onboardingBlockedDays >= 7 ? 'cliente travado sem publicação' : !hasAgendaRecord ? 'sem agenda criada' : 'onboarding em andamento';
     const pending: string[] = [];
     if (!devIsActiveStatus(planStatus)) pending.push('plano pendente');
     if (devIsPendingStatus(paymentStatus)) pending.push('pagamento pendente');
     if (devIsSuspendedStatus(paymentStatus) || devIsSuspendedStatus(planStatus)) pending.push('risco comercial');
-    if (!['published', 'active'].includes(cleanDevStatus(agendaStatus))) pending.push('agenda não publicada');
+    if (!publishedAgenda) pending.push('agenda não publicada');
+    if (onboardingAlert && onboardingBlockedDays >= 7) pending.push(onboardingAlert);
     if (!company?.whatsapp && !company?.phone && !account?.whatsapp && !account?.phone) pending.push('sem WhatsApp');
-    if (appointments.length === 0 && ['published', 'active'].includes(cleanDevStatus(agendaStatus))) pending.push('sem agendamentos');
+    if (appointments.length === 0 && publishedAgenda) pending.push('sem agendamentos');
     if (lastActivityTime && devDateAgeDays(lastActivityTime) > 30) pending.push('sem uso recente');
     const risk: DevCommercialRow['risk'] = pending.some(item => /risco|suspens|recus|vencid/.test(item)) ? 'danger' : pending.length ? 'warning' : 'success';
     const revenue = paymentPool.filter((item: any) => ['approved', 'approved_manual', 'paid'].includes(cleanDevStatus(item.status))).reduce((sum: number, item: any) => sum + Number(item.amount || item.value || 0), 0);
@@ -3578,7 +3644,8 @@ function buildDevCommercialRows(rows: any): DevCommercialRow[] {
       devIsPendingStatus(planStatus) || devIsPendingStatus(paymentStatus) ? 'pending' : '',
       devIsSuspendedStatus(planStatus) || devIsSuspendedStatus(paymentStatus) ? 'suspended expired' : '',
       devIsPendingStatus(paymentStatus) ? 'payment_pending' : '',
-      ['published', 'active'].includes(cleanDevStatus(agendaStatus)) ? 'agenda_published' : 'no_agenda',
+      publishedAgenda ? 'agenda_published onboarding_published' : 'no_agenda onboarding',
+      onboardingBlockedDays >= 7 ? 'onboarding_stuck' : '',
       /implementation|implant/.test(JSON.stringify({ company, account, manualPayments }).toLowerCase()) ? 'implementation' : '',
       appointments.length >= 5 ? 'high_usage' : '',
       !lastActivityTime || devDateAgeDays(lastActivityTime) > 30 ? 'no_recent' : '',
@@ -3609,6 +3676,11 @@ function buildDevCommercialRows(rows: any): DevCommercialRow[] {
       pending,
       risk,
       filterTokens: filterTokens.split(/\s+/).filter(Boolean),
+      onboardingStatus,
+      onboardingStage,
+      onboardingScore,
+      onboardingBlockedDays,
+      onboardingAlert,
     };
   };
 
@@ -3659,6 +3731,7 @@ function DeveloperConsolePage() {
   const nav: Array<[string, ComponentType<{ size?: number }>, string]> = [
     ['overview', LayoutDashboard, 'Visão geral'],
     ['commercial', BarChart3, 'Comercial'],
+    ['onboarding', Rocket, 'Onboarding'],
     ['clients', Users, 'Clientes'],
     ['companies', Building2, 'Empresas'],
     ['agendas', CalendarClock, 'Agendas'],
@@ -3681,6 +3754,7 @@ function DeveloperConsolePage() {
   const tabCopy: Record<string, { title: string; description: string }> = {
     overview: { title: 'Visão geral', description: 'Acompanhe a operação do AgendaPro em tempo real, com métricas, alertas e eventos recentes.' },
     commercial: { title: 'Operação comercial', description: 'Acompanhe clientes, planos, pagamentos, publicação, uso e riscos em uma visão executiva.' },
+    onboarding: { title: 'Onboarding empresarial', description: 'Acompanhe empresas novas, etapa atual, publicação e clientes travados antes de operar a agenda.' },
     clients: { title: 'Clientes', description: 'Gerencie clientes, acessos, vínculos, pendências e histórico de suporte.' },
     companies: { title: 'Empresas', description: 'Controle empresas, planos, status, responsáveis e dados públicos.' },
     agendas: { title: 'Agendas', description: 'Gerencie agendas publicadas, links, serviços, profissionais e validações.' },
@@ -3841,6 +3915,14 @@ function DeveloperConsolePage() {
     highUsage: commercialRows.filter(item => item.filterTokens.includes('high_usage')).length,
     noRecent: commercialRows.filter(item => item.filterTokens.includes('no_recent')).length,
   };
+  const onboardingRows = commercialRows.filter(item => item.filterTokens.includes('onboarding') || item.filterTokens.includes('onboarding_stuck') || item.filterTokens.includes('onboarding_published'));
+  const onboardingMetrics = {
+    total: onboardingRows.length,
+    stuck: onboardingRows.filter(item => item.filterTokens.includes('onboarding_stuck')).length,
+    ready: onboardingRows.filter(item => item.onboardingScore >= 90 && !item.filterTokens.includes('onboarding_published')).length,
+    published: commercialRows.filter(item => item.filterTokens.includes('onboarding_published')).length,
+    noAgenda: onboardingRows.filter(item => item.onboardingAlert === 'sem agenda criada').length
+  };
 
   const searchPool = [
     ...rows.clients.map((x: any) => ({ type: 'Cliente', title: x.name || x.full_name || x.email, subtitle: `${x.email || ''} ${x.whatsapp || x.phone || ''}`, tab: 'clients', raw: x, entity: 'client' })),
@@ -3988,6 +4070,7 @@ function DeveloperConsolePage() {
       { label: 'Pagamentos manuais pendentes', value: metrics.manualPending, tone: 'warning', tab: 'manual' },
       { label: 'Webhooks com erro', value: metrics.webhooksError, tone: 'danger', tab: 'webhooks' },
       { label: 'Logs críticos', value: metrics.logsCritical, tone: 'danger', tab: 'logs' },
+      { label: 'Onboarding travado', value: onboardingMetrics.stuck, tone: 'warning', tab: 'onboarding' },
       { label: 'Agendas sem serviço', value: rows.agendas.filter((a: any) => !(a.services || []).length).length, tone: 'warning', tab: 'agendas' },
       { label: 'Dados demo detectados', value: rows.agendas.filter((a: any) => isDemoLike(a.business_name) || isDemoLike(a.public_slug)).length, tone: 'danger', tab: 'agendas' },
     ].filter(a => a.value > 0);
@@ -4074,6 +4157,7 @@ function DeveloperConsolePage() {
   const renderTab = () => {
     if (activeTab === 'overview') return renderOverview();
     if (activeTab === 'commercial') return <DevCommercialOpsPanel rows={commercialRows} metrics={commercialMetrics} filter={commercialFilter} setFilter={setCommercialFilter} money={money} statusBadge={statusBadge} open={(row: DevCommercialRow) => setSelected({ type: 'Comercial 360º', entity: row.company ? 'company' : 'client', raw: row.company || row.account || row, commercial: row })} setActiveTab={setActiveTab} exportRows={(visible: DevCommercialRow[]) => exportSummary('central-dev-comercial', visible)} copy={copy} />;
+    if (activeTab === 'onboarding') return <DevOnboardingPanel rows={onboardingRows} metrics={onboardingMetrics} open={(row: DevCommercialRow) => setSelected({ type: 'Onboarding empresarial', entity: row.company ? 'company' : 'client', raw: row.company || row.account || row, commercial: row })} setActiveTab={setActiveTab} exportRows={(visible: DevCommercialRow[]) => exportSummary('central-dev-onboarding', visible)} copy={copy} />;
     if (activeTab === 'clients') return renderEntityTable('clients', rows.clients, [['Cliente', item => <><b>{item.name || item.full_name || 'Cliente sem nome'}</b><small>{item.email}</small></>], ['WhatsApp', item => item.phone || item.whatsapp || '—'], ['Plano', item => item.plan || item.current_plan_id || '—'], ['Status', item => statusBadge(item.subscription_status || item.status)], ['Criado em', item => formatDate(item.created_at)]], item => quickActions(item, 'client'));
     if (activeTab === 'companies') return renderEntityTable('companies', rows.companies, [['Empresa', item => <><b>{item.name || item.business_name || 'Empresa sem nome'}</b><small>{item.slug || item.public_slug || 'sem slug'}</small></>], ['Contato', item => <><span>{item.email || '—'}</span><small>{item.whatsapp || item.phone || ''}</small></>], ['Plano', item => item.current_plan_id || item.plan || '—'], ['Saúde', item => <>{statusBadge(item.subscription_status || item.status || 'active')}{(isDemoLike(item.name) || isDemoLike(item.public_slug || item.slug)) && <span className="dev-status danger">demo?</span>}</>], ['Criado em', item => formatDate(item.created_at)]], item => quickActions(item, 'company'));
     if (activeTab === 'agendas') return renderEntityTable('agendas', rows.agendas, [['Agenda', item => <><b>{item.business_name || item.name || 'Agenda online'}</b><small>{item.public_slug || item.slug}</small></>], ['Dados', item => <><span>{(item.services || []).length || 0} serviços</span><small>{(item.team || item.professionals || []).length || 0} profissionais</small></>], ['Publicação', item => statusBadge(item.published ? 'published' : item.status)], ['Validação', item => <>{!item.whatsapp && !item.phone ? <span className="dev-status warning">sem WhatsApp</span> : <span className="dev-status success">contato ok</span>}{!(item.services || []).length && <span className="dev-status warning">sem serviços</span>}{isDemoLike(item.business_name) && <span className="dev-status danger">demo?</span>}</>], ['Atualizada', item => formatDate(item.updated_at || item.created_at)]], item => quickActions(item, 'agenda'));
@@ -4099,6 +4183,7 @@ function DeveloperConsolePage() {
   const sidebarBadge = (key: string) => {
     if (key === 'manual' && metrics.manualPending) return metrics.manualPending;
     if (key === 'commercial' && (commercialMetrics.pending + commercialMetrics.suspended)) return commercialMetrics.pending + commercialMetrics.suspended;
+    if (key === 'onboarding' && onboardingMetrics.stuck) return onboardingMetrics.stuck;
     if (key === 'webhooks' && metrics.webhooksError) return metrics.webhooksError;
     if (key === 'logs' && metrics.logsCritical) return metrics.logsCritical;
     if (key === 'health' && (metrics.webhooksError + metrics.logsCritical)) return metrics.webhooksError + metrics.logsCritical;
@@ -4248,6 +4333,63 @@ function DevCommercialOpsPanel({ rows, metrics, filter, setFilter, money, status
           <button type="button" onClick={() => setActiveTab('payments')}>Pagamentos automáticos</button>
           <button type="button" onClick={() => setActiveTab('agendas')}>Agendas</button>
           <button type="button" onClick={() => setActiveTab('support')}>Suporte 360º</button>
+        </div>
+      </div>
+    </section>
+  </div>;
+}
+
+function DevOnboardingPanel({ rows, metrics, open, setActiveTab, exportRows, copy }: { rows: DevCommercialRow[]; metrics: any; open: (row: DevCommercialRow) => void; setActiveTab: Dispatch<SetStateAction<string>>; exportRows: (rows: DevCommercialRow[]) => void; copy: (text: string, label?: string) => void }) {
+  const visible = [...rows].sort((a, b) => {
+    if (a.filterTokens.includes('onboarding_stuck') !== b.filterTokens.includes('onboarding_stuck')) return a.filterTokens.includes('onboarding_stuck') ? -1 : 1;
+    return a.onboardingScore - b.onboardingScore;
+  });
+  const stuckRows = visible.filter(row => row.filterTokens.includes('onboarding_stuck'));
+  const readyRows = visible.filter(row => row.onboardingScore >= 90 && !row.filterTokens.includes('onboarding_published'));
+  const inProgressRows = visible.filter(row => !row.filterTokens.includes('onboarding_published'));
+  const publicSlug = (row: DevCommercialRow) => row.agenda?.public_slug || row.agenda?.slug || row.company?.public_slug || row.company?.slug || '';
+  const publicLink = (row: DevCommercialRow) => `${window.location.origin}/#/agendar/${publicSlug(row)}`;
+  const blockedLabel = (row: DevCommercialRow) => Number.isFinite(row.onboardingBlockedDays) ? `${row.onboardingBlockedDays} dia(s) sem publicação` : 'sem atividade registrada';
+  const summary = visible.map(row => `${row.name} | ${row.email || row.whatsapp || 'sem contato'} | ${row.onboardingStage} | ${row.onboardingScore}% | ${row.onboardingAlert || 'publicado'}`).join('\n');
+  const actionLabel = (row: DevCommercialRow) => row.filterTokens.includes('onboarding_published') ? 'Acompanhar operação' : row.onboardingScore >= 90 ? 'Publicar agenda' : 'Continuar configuração';
+
+  return <div className="dev-onboarding-panel">
+    <section className="dev-onboarding-hero">
+      <div><Badge tone="green">v0.6.3.8</Badge><h2>Onboarding empresarial guiado</h2><p>Leitura rápida de quem criou conta, onde parou, quem está pronto para publicar e quem precisa de ação antes de receber clientes reais.</p></div>
+      <div className="dev-onboarding-actions"><button type="button" onClick={() => exportRows(visible)}><FileText size={15}/> Resumo TXT</button><button type="button" onClick={() => copy(summary, 'Resumo de onboarding')}><Download size={15}/> Copiar resumo</button><button type="button" onClick={() => setActiveTab('agendas')}><CalendarClock size={15}/> Ver agendas</button></div>
+    </section>
+
+    <section className="dev-onboarding-kpis">
+      <article><Rocket/><span>Em onboarding</span><b>{metrics.total}</b><small>clientes mapeados no funil</small></article>
+      <article className={metrics.stuck ? 'warning' : 'success'}><AlertTriangle/><span>Travados</span><b>{metrics.stuck}</b><small>sem publicação há 7+ dias</small></article>
+      <article><ListChecks/><span>Prontos</span><b>{metrics.ready}</b><small>90% ou mais antes de publicar</small></article>
+      <article className="success"><CheckCircle2/><span>Publicados</span><b>{metrics.published}</b><small>agenda disponível ao público</small></article>
+      <article className={metrics.noAgenda ? 'warning' : 'success'}><CalendarClock/><span>Sem agenda</span><b>{metrics.noAgenda}</b><small>precisam iniciar configuração</small></article>
+    </section>
+
+    <section className="dev-grid-2 dev-onboarding-main">
+      <div className="dev-panel-card">
+        <div className="dev-card-title"><div><h3>Clientes em onboarding</h3><span>{inProgressRows.length} conta(s) ainda antes da operação completa</span></div><button type="button" onClick={() => exportRows(inProgressRows)}>Exportar visíveis</button></div>
+        <div className="dev-onboarding-list">
+          {inProgressRows.map(row => <article key={row.id} className={row.filterTokens.includes('onboarding_stuck') ? 'stuck' : row.onboardingScore >= 90 ? 'ready' : ''}>
+            <div className="dev-onboarding-row-head">
+              <span><b>{row.name}</b><small>{row.email || row.whatsapp || 'sem contato principal'}</small></span>
+              <em>{row.onboardingStage}</em>
+            </div>
+            <div className="dev-onboarding-progress"><i style={{ width: `${row.onboardingScore}%` }} /></div>
+            <div className="dev-onboarding-row-meta"><span>{row.onboardingScore}% concluído</span><span>{row.onboardingAlert}</span><span>{blockedLabel(row)}</span></div>
+            <div className="dev-onboarding-row-actions"><button type="button" onClick={() => open(row)}><Eye size={15}/> Detalhes</button><button type="button" onClick={() => setActiveTab('support')}><Headphones size={15}/> Suporte</button>{publicSlug(row) && <button type="button" onClick={() => copy(publicLink(row), 'Link de agendamento')}><Link2 size={15}/> Copiar link</button>}<button type="button" onClick={() => setActiveTab('agendas')}>{actionLabel(row)}</button></div>
+          </article>)}
+          {!inProgressRows.length && <div className="dev-empty-state"><CheckCircle2/><b>Nenhum onboarding pendente</b><span>As contas carregadas já estão publicadas ou não há dados sincronizados.</span></div>}
+        </div>
+      </div>
+
+      <div className="dev-panel-card">
+        <div className="dev-card-title"><div><h3>Travados e prontos</h3><span>Prioridade para evitar abandono antes da publicação</span></div><button type="button" onClick={() => setActiveTab('commercial')}>Ver comercial</button></div>
+        <div className="dev-onboarding-alert-list">
+          {stuckRows.map(row => <button type="button" key={row.id} className="warning" onClick={() => open(row)}><AlertTriangle size={17}/><span><b>{row.name}</b><small>{row.onboardingAlert} · {blockedLabel(row)}</small></span></button>)}
+          {readyRows.map(row => <button type="button" key={`ready-${row.id}`} className="ready" onClick={() => open(row)}><Rocket size={17}/><span><b>{row.name}</b><small>Checklist pronto para publicação assistida.</small></span></button>)}
+          {!stuckRows.length && !readyRows.length && <div className="dev-empty-mini">Sem travas críticas ou agendas prontas aguardando publicação.</div>}
         </div>
       </div>
     </section>
