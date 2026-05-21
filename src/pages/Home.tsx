@@ -3043,6 +3043,162 @@ function makeDevExportText(title: string, data: any[]) {
   return lines.join('\n');
 }
 
+type DevCommercialRow = {
+  id: string;
+  account?: any;
+  company?: any;
+  agenda?: any;
+  payments: any[];
+  manualPayments: any[];
+  appointments: any[];
+  logs: any[];
+  name: string;
+  owner: string;
+  email: string;
+  whatsapp: string;
+  plan: string;
+  planStatus: string;
+  paymentStatus: string;
+  agendaStatus: string;
+  appointmentsCount: number;
+  lastAppointment?: string;
+  lastActivity?: string;
+  createdAt?: string;
+  revenue: number;
+  pending: string[];
+  risk: 'success' | 'warning' | 'danger';
+  filterTokens: string[];
+};
+
+function cleanDevStatus(value: any) {
+  return String(value || '').toLowerCase().trim();
+}
+
+function devIsActiveStatus(value: any) {
+  return ['active', 'trial', 'approved', 'approved_manual', 'paid', 'published'].includes(cleanDevStatus(value));
+}
+
+function devIsPendingStatus(value: any) {
+  return /pending|review|manual|awaiting|analysis|análise|pendente|draft|rascunho/.test(cleanDevStatus(value));
+}
+
+function devIsSuspendedStatus(value: any) {
+  return /suspended|cancel|expired|rejected|failed|revoked|disabled|vencid|suspens|recus/.test(cleanDevStatus(value));
+}
+
+function devLatestDate(items: any[], keys = ['updated_at', 'created_at', 'requested_date', 'reviewed_at']) {
+  return items.map(item => {
+    const raw = keys.map(key => item?.[key]).find(Boolean);
+    const time = raw ? new Date(raw).getTime() : 0;
+    return Number.isNaN(time) ? 0 : time;
+  }).sort((a, b) => b - a)[0] || 0;
+}
+
+function devDateAgeDays(value: any) {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const time = new Date(value).getTime();
+  if (Number.isNaN(time)) return Number.POSITIVE_INFINITY;
+  return Math.floor((Date.now() - time) / 86400000);
+}
+
+function devSameEntity(item: any, row: { account?: any; company?: any; agenda?: any; email?: string }) {
+  const ids = [row.account?.id, row.company?.id, row.agenda?.id].filter(Boolean).map(String);
+  const itemIds = [item?.account_id, item?.client_account_id, item?.company_id, item?.linked_company_id, item?.linked_client_account_id, item?.agenda_id].filter(Boolean).map(String);
+  if (ids.some(id => itemIds.includes(id))) return true;
+  const email = String(row.email || row.account?.email || row.company?.email || '').toLowerCase();
+  const itemEmail = String(item?.email || item?.customer_email || item?.payer_email || item?.activated_email || '').toLowerCase();
+  if (email && itemEmail && email === itemEmail) return true;
+  const slug = String(row.agenda?.public_slug || row.agenda?.slug || row.company?.public_slug || row.company?.slug || '').toLowerCase();
+  const itemSlug = String(item?.agenda_slug || item?.public_slug || item?.slug || '').toLowerCase();
+  return Boolean(slug && itemSlug && slug === itemSlug);
+}
+
+function buildDevCommercialRows(rows: any): DevCommercialRow[] {
+  const accounts = rows.clients || [];
+  const companies = rows.companies || [];
+  const agendas = rows.agendas || [];
+  const usedAccountIds = new Set<string>();
+
+  const findAccountForCompany = (company: any) => accounts.find((account: any) =>
+    [company.owner_account_id, company.client_account_id, company.account_id].filter(Boolean).map(String).includes(String(account.id)) ||
+    (company.email && account.email && String(company.email).toLowerCase() === String(account.email).toLowerCase())
+  );
+
+  const makeRow = (account: any, company: any, fallbackIndex: number): DevCommercialRow => {
+    if (account?.id) usedAccountIds.add(String(account.id));
+    const agenda = agendas.find((item: any) => devSameEntity(item, { account, company, email: account?.email || company?.email }));
+    const base = { account, company, agenda, email: account?.email || company?.email || '' };
+    const payments = (rows.payments || []).filter((item: any) => devSameEntity(item, base));
+    const manualPayments = (rows.manual || []).filter((item: any) => devSameEntity(item, base));
+    const appointments = (rows.appointments || []).filter((item: any) => devSameEntity(item, base));
+    const logs = (rows.logs || []).filter((item: any) => devSameEntity(item, base)).slice(0, 8);
+    const paymentPool = [...payments, ...manualPayments];
+    const planStatus = company?.subscription_status || account?.subscription_status || company?.status || account?.status || 'pending';
+    const paymentStatus = paymentPool[0]?.status || company?.payment_status || account?.payment_status || 'pending';
+    const agendaStatus = agenda?.published || agenda?.is_published || agenda?.status === 'published' ? 'published' : agenda?.status || 'draft';
+    const lastAppointmentTime = devLatestDate(appointments, ['requested_date', 'created_at', 'updated_at']);
+    const lastActivityTime = Math.max(lastAppointmentTime, devLatestDate(logs), devLatestDate(paymentPool));
+    const pending: string[] = [];
+    if (!devIsActiveStatus(planStatus)) pending.push('plano pendente');
+    if (devIsPendingStatus(paymentStatus)) pending.push('pagamento pendente');
+    if (devIsSuspendedStatus(paymentStatus) || devIsSuspendedStatus(planStatus)) pending.push('risco comercial');
+    if (!['published', 'active'].includes(cleanDevStatus(agendaStatus))) pending.push('agenda não publicada');
+    if (!company?.whatsapp && !company?.phone && !account?.whatsapp && !account?.phone) pending.push('sem WhatsApp');
+    if (appointments.length === 0 && ['published', 'active'].includes(cleanDevStatus(agendaStatus))) pending.push('sem agendamentos');
+    if (lastActivityTime && devDateAgeDays(lastActivityTime) > 30) pending.push('sem uso recente');
+    const risk: DevCommercialRow['risk'] = pending.some(item => /risco|suspens|recus|vencid/.test(item)) ? 'danger' : pending.length ? 'warning' : 'success';
+    const revenue = paymentPool.filter((item: any) => ['approved', 'approved_manual', 'paid'].includes(cleanDevStatus(item.status))).reduce((sum: number, item: any) => sum + Number(item.amount || item.value || 0), 0);
+    const filterTokens = [
+      devIsActiveStatus(planStatus) ? 'active' : '',
+      devIsPendingStatus(planStatus) || devIsPendingStatus(paymentStatus) ? 'pending' : '',
+      devIsSuspendedStatus(planStatus) || devIsSuspendedStatus(paymentStatus) ? 'suspended expired' : '',
+      devIsPendingStatus(paymentStatus) ? 'payment_pending' : '',
+      ['published', 'active'].includes(cleanDevStatus(agendaStatus)) ? 'agenda_published' : 'no_agenda',
+      /implementation|implant/.test(JSON.stringify({ company, account, manualPayments }).toLowerCase()) ? 'implementation' : '',
+      appointments.length >= 5 ? 'high_usage' : '',
+      !lastActivityTime || devDateAgeDays(lastActivityTime) > 30 ? 'no_recent' : '',
+    ].join(' ');
+
+    return {
+      id: String(company?.id || account?.id || `commercial-${fallbackIndex}`),
+      account,
+      company,
+      agenda,
+      payments,
+      manualPayments,
+      appointments,
+      logs,
+      name: company?.name || company?.business_name || account?.business_name || account?.full_name || account?.name || 'Cliente sem nome',
+      owner: account?.full_name || account?.name || company?.owner_name || 'Responsável não informado',
+      email: account?.email || company?.email || '',
+      whatsapp: company?.whatsapp || company?.phone || account?.whatsapp || account?.phone || '',
+      plan: company?.current_plan_id || account?.plan || paymentPool[0]?.plan_id || 'professional',
+      planStatus,
+      paymentStatus,
+      agendaStatus,
+      appointmentsCount: appointments.length,
+      lastAppointment: lastAppointmentTime ? new Date(lastAppointmentTime).toISOString() : '',
+      lastActivity: lastActivityTime ? new Date(lastActivityTime).toISOString() : '',
+      createdAt: company?.created_at || account?.created_at || agenda?.created_at || '',
+      revenue,
+      pending,
+      risk,
+      filterTokens: filterTokens.split(/\s+/).filter(Boolean),
+    };
+  };
+
+  const companyRows: DevCommercialRow[] = companies.map((company: any, index: number) => makeRow(findAccountForCompany(company), company, index));
+  const accountRows: DevCommercialRow[] = accounts
+    .filter((account: any) => !usedAccountIds.has(String(account.id)))
+    .map((account: any, index: number) => makeRow(account, null, index + companyRows.length));
+  const riskOrder: Record<DevCommercialRow['risk'], number> = { danger: 0, warning: 1, success: 2 };
+
+  return [...companyRows, ...accountRows].sort((a, b) => {
+    if (a.risk !== b.risk) return riskOrder[a.risk] - riskOrder[b.risk];
+    return new Date(b.lastActivity || b.createdAt || 0).getTime() - new Date(a.lastActivity || a.createdAt || 0).getTime();
+  });
+}
+
 function DeveloperConsolePage() {
   const { pushToast } = useApp();
   const [session, setSession] = useState(() => getDevSession());
@@ -3054,6 +3210,7 @@ function DeveloperConsolePage() {
   const [lastSync, setLastSync] = useState<string>('');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
+  const [commercialFilter, setCommercialFilter] = useState('all');
   const [advancedFilters, setAdvancedFilters] = useState<DevAdvancedFilters>(emptyDevFilters);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selected, setSelected] = useState<any>(null);
@@ -3076,6 +3233,7 @@ function DeveloperConsolePage() {
 
   const nav: Array<[string, ComponentType<{ size?: number }>, string]> = [
     ['overview', LayoutDashboard, 'Visão geral'],
+    ['commercial', BarChart3, 'Comercial'],
     ['clients', Users, 'Clientes'],
     ['companies', Building2, 'Empresas'],
     ['agendas', CalendarClock, 'Agendas'],
@@ -3097,6 +3255,7 @@ function DeveloperConsolePage() {
 
   const tabCopy: Record<string, { title: string; description: string }> = {
     overview: { title: 'Visão geral', description: 'Acompanhe a operação do AgendaPro em tempo real, com métricas, alertas e eventos recentes.' },
+    commercial: { title: 'Operação comercial', description: 'Acompanhe clientes, planos, pagamentos, publicação, uso e riscos em uma visão executiva.' },
     clients: { title: 'Clientes', description: 'Gerencie clientes, acessos, vínculos, pendências e histórico de suporte.' },
     companies: { title: 'Empresas', description: 'Controle empresas, planos, status, responsáveis e dados públicos.' },
     agendas: { title: 'Agendas', description: 'Gerencie agendas publicadas, links, serviços, profissionais e validações.' },
@@ -3202,7 +3361,8 @@ function DeveloperConsolePage() {
     logs: dashboard?.logs || dashboard?.activityLogs || [],
     audit: dashboard?.auditLogs || [],
     settings: dashboard?.settings || [],
-    supportNotes: dashboard?.supportNotes || []
+    supportNotes: dashboard?.supportNotes || [],
+    systemAlerts: dashboard?.systemAlerts || []
   };
 
   const storedPlanMap = new Map((dashboard?.plans || rows.settings.filter((item: any) => String(item.key || '').startsWith('plan:'))).map((item: any) => [String(item.key || '').replace('plan:', ''), item]));
@@ -3231,13 +3391,30 @@ function DeveloperConsolePage() {
     appointments: rows.appointments.length,
     payments: rows.payments.length,
     manualPending: rows.manual.filter((x: any) => ['pending', 'pending_review', 'needs_adjustment'].includes(String(x.status || '').toLowerCase())).length,
+    paymentPending: [...rows.payments, ...rows.manual].filter((x: any) => devIsPendingStatus(x.status)).length,
+    paymentsApproved: [...rows.payments, ...rows.manual].filter((x: any) => ['approved', 'approved_manual', 'paid'].includes(cleanDevStatus(x.status))).length,
+    revenuePending: [...rows.payments, ...rows.manual].filter((x: any) => devIsPendingStatus(x.status)).reduce((sum: number, x: any) => sum + Number(x.amount || x.value || 0), 0),
+    companiesPending: rows.companies.filter((x: any) => devIsPendingStatus(x.subscription_status || x.status || x.payment_status)).length,
+    companiesSuspended: rows.companies.filter((x: any) => devIsSuspendedStatus(x.subscription_status || x.status || x.payment_status)).length,
     published: rows.agendas.filter((x: any) => x.published || x.status === 'published').length,
+    draftAgendas: rows.agendas.filter((x: any) => !(x.published || x.status === 'published')).length,
     webhooksError: rows.webhooks.filter((x: any) => ['error', 'failed'].includes(String(x.status || x.severity || '').toLowerCase()) || x.processing_error).length,
     logsCritical: rows.logs.filter((x: any) => ['critical', 'error'].includes(String(x.severity || '').toLowerCase())).length,
     revenue: [...rows.payments, ...rows.manual].filter((x: any) => ['approved', 'approved_manual', 'paid'].includes(String(x.status || '').toLowerCase())).reduce((sum: number, x: any) => sum + Number(x.amount || x.value || 0), 0),
     activeAccounts: rows.clients.filter((x: any) => ['active', 'trial'].includes(String(x.status || x.subscription_status || '').toLowerCase())).length,
     activeKeys: rows.keys.filter((x: any) => ['active', 'available'].includes(String(x.status || '').toLowerCase())).length,
     filteredLogs: rows.logs.filter((x: any) => matchesDevAdvancedFilters(x, advancedFilters)).length
+  };
+  const commercialRows = buildDevCommercialRows(rows);
+  const commercialMetrics = {
+    total: commercialRows.length,
+    active: commercialRows.filter(item => devIsActiveStatus(item.planStatus)).length,
+    pending: commercialRows.filter(item => item.filterTokens.includes('pending')).length,
+    suspended: commercialRows.filter(item => item.filterTokens.includes('suspended') || item.filterTokens.includes('expired')).length,
+    published: commercialRows.filter(item => item.filterTokens.includes('agenda_published')).length,
+    noAgenda: commercialRows.filter(item => item.filterTokens.includes('no_agenda')).length,
+    highUsage: commercialRows.filter(item => item.filterTokens.includes('high_usage')).length,
+    noRecent: commercialRows.filter(item => item.filterTokens.includes('no_recent')).length,
   };
 
   const searchPool = [
@@ -3397,6 +3574,8 @@ function DeveloperConsolePage() {
         {renderMetric('Agendas', metrics.agendas, <CalendarClock size={20} />, `${metrics.published} publicadas`)}
         {renderMetric('Agendamentos', metrics.appointments, <Clock3 size={20} />, 'solicitações totais')}
         {renderMetric('Receita validada', money(metrics.revenue), <CreditCard size={20} />, 'manual + automática')}
+        {renderMetric('Receita pendente', money(metrics.revenuePending), <AlertTriangle size={20} />, `${metrics.paymentPending} pagamento(s) em análise`)}
+        {renderMetric('Empresas suspensas', metrics.companiesSuspended, <ShieldCheck size={20} />, 'risco comercial')}
         {renderMetric('Keys', rows.keys.length, <KeyRound size={20} />, 'licenças geradas')}
       </section>
 
@@ -3406,6 +3585,18 @@ function DeveloperConsolePage() {
         </div>
         <div className="dev-panel-card"><div className="dev-card-title"><h3>Alertas operacionais</h3><span>Itens que exigem atenção</span></div>
           {alerts.length ? alerts.map(alert => <button className={`dev-alert-row ${alert.tone}`} key={alert.label} onClick={() => setActiveTab(alert.tab)}><strong>{alert.label}</strong><span>{alert.value}</span></button>) : <div className="dev-empty-mini">Nenhum alerta crítico detectado.</div>}
+        </div>
+      </section>
+
+      <section className="dev-panel-card">
+        <div className="dev-card-title"><div><h3>Radar comercial</h3><span>Clientes com maior risco operacional ou oportunidade de suporte.</span></div><button type="button" onClick={() => setActiveTab('commercial')}>Abrir operação comercial</button></div>
+        <div className="commercial-radar-list">
+          {commercialRows.slice(0, 5).map(row => <button key={row.id} className={`commercial-radar-row ${row.risk}`} onClick={() => setSelected({ type: 'Comercial 360º', entity: row.company ? 'company' : 'client', raw: row.company || row.account || row, commercial: row })}>
+            <span><b>{row.name}</b><small>{row.email || row.whatsapp || 'sem contato principal'}</small></span>
+            <em>{row.pending[0] || 'operação saudável'}</em>
+            <strong>{row.appointmentsCount} ag.</strong>
+          </button>)}
+          {!commercialRows.length && <div className="dev-empty-mini">Sem clientes carregados para análise comercial.</div>}
         </div>
       </section>
 
@@ -3457,6 +3648,7 @@ function DeveloperConsolePage() {
 
   const renderTab = () => {
     if (activeTab === 'overview') return renderOverview();
+    if (activeTab === 'commercial') return <DevCommercialOpsPanel rows={commercialRows} metrics={commercialMetrics} filter={commercialFilter} setFilter={setCommercialFilter} money={money} statusBadge={statusBadge} open={(row: DevCommercialRow) => setSelected({ type: 'Comercial 360º', entity: row.company ? 'company' : 'client', raw: row.company || row.account || row, commercial: row })} setActiveTab={setActiveTab} exportRows={(visible: DevCommercialRow[]) => exportSummary('central-dev-comercial', visible)} copy={copy} />;
     if (activeTab === 'clients') return renderEntityTable('clients', rows.clients, [['Cliente', item => <><b>{item.name || item.full_name || 'Cliente sem nome'}</b><small>{item.email}</small></>], ['WhatsApp', item => item.phone || item.whatsapp || '—'], ['Plano', item => item.plan || item.current_plan_id || '—'], ['Status', item => statusBadge(item.subscription_status || item.status)], ['Criado em', item => formatDate(item.created_at)]], item => quickActions(item, 'client'));
     if (activeTab === 'companies') return renderEntityTable('companies', rows.companies, [['Empresa', item => <><b>{item.name || item.business_name || 'Empresa sem nome'}</b><small>{item.slug || item.public_slug || 'sem slug'}</small></>], ['Contato', item => <><span>{item.email || '—'}</span><small>{item.whatsapp || item.phone || ''}</small></>], ['Plano', item => item.current_plan_id || item.plan || '—'], ['Saúde', item => <>{statusBadge(item.subscription_status || item.status || 'active')}{(isDemoLike(item.name) || isDemoLike(item.public_slug || item.slug)) && <span className="dev-status danger">demo?</span>}</>], ['Criado em', item => formatDate(item.created_at)]], item => quickActions(item, 'company'));
     if (activeTab === 'agendas') return renderEntityTable('agendas', rows.agendas, [['Agenda', item => <><b>{item.business_name || item.name || 'Agenda online'}</b><small>{item.public_slug || item.slug}</small></>], ['Dados', item => <><span>{(item.services || []).length || 0} serviços</span><small>{(item.team || item.professionals || []).length || 0} profissionais</small></>], ['Publicação', item => statusBadge(item.published ? 'published' : item.status)], ['Validação', item => <>{!item.whatsapp && !item.phone ? <span className="dev-status warning">sem WhatsApp</span> : <span className="dev-status success">contato ok</span>}{!(item.services || []).length && <span className="dev-status warning">sem serviços</span>}{isDemoLike(item.business_name) && <span className="dev-status danger">demo?</span>}</>], ['Atualizada', item => formatDate(item.updated_at || item.created_at)]], item => quickActions(item, 'agenda'));
@@ -3481,6 +3673,7 @@ function DeveloperConsolePage() {
 
   const sidebarBadge = (key: string) => {
     if (key === 'manual' && metrics.manualPending) return metrics.manualPending;
+    if (key === 'commercial' && (commercialMetrics.pending + commercialMetrics.suspended)) return commercialMetrics.pending + commercialMetrics.suspended;
     if (key === 'webhooks' && metrics.webhooksError) return metrics.webhooksError;
     if (key === 'logs' && metrics.logsCritical) return metrics.logsCritical;
     if (key === 'health' && (metrics.webhooksError + metrics.logsCritical)) return metrics.webhooksError + metrics.logsCritical;
@@ -3567,6 +3760,75 @@ function DevPlansPanel({ plans, money, openEdit }: { plans: any[]; money: (v: an
   return <div className="dev-plans-grid">{plans.map(plan => <article className="dev-plan-card" key={plan.id}><span>{plan.name}</span><b>{Number(plan.price) ? money(plan.price) : 'Sob regra'}</b><p>{plan.description}</p><small>{plan.status === 'active' ? 'Ativo' : plan.status}</small><button type="button" onClick={() => openEdit(plan)}>Editar configuração</button><button type="button" onClick={() => navigator.clipboard?.writeText(plan.payment_link || '')}>Copiar link MP</button></article>)}</div>;
 }
 
+function DevCommercialOpsPanel({ rows, metrics, filter, setFilter, money, statusBadge, open, setActiveTab, exportRows, copy }: { rows: DevCommercialRow[]; metrics: any; filter: string; setFilter: Dispatch<SetStateAction<string>>; money: (v: any) => string; statusBadge: (status: any) => ReactNode; open: (row: DevCommercialRow) => void; setActiveTab: Dispatch<SetStateAction<string>>; exportRows: (rows: DevCommercialRow[]) => void; copy: (text: string, label?: string) => void }) {
+  const filters = [
+    ['all', 'Todos'],
+    ['active', 'Ativos'],
+    ['pending', 'Pendentes'],
+    ['suspended', 'Suspensos'],
+    ['payment_pending', 'Pagamento pendente'],
+    ['agenda_published', 'Agenda publicada'],
+    ['no_agenda', 'Sem agenda'],
+    ['implementation', 'Implantação'],
+    ['high_usage', 'Alto uso'],
+    ['no_recent', 'Sem uso recente'],
+  ];
+  const visible = filter === 'all' ? rows : rows.filter(row => row.filterTokens.includes(filter));
+  const pendingRows = rows.filter(row => row.pending.length).slice(0, 6);
+  const summary = visible.map(row => `${row.name} | ${row.email || row.whatsapp || 'sem contato'} | plano ${row.plan} | pagamento ${row.paymentStatus} | agenda ${row.agendaStatus} | pendências: ${row.pending.join(', ') || 'nenhuma'}`).join('\n');
+
+  return <div className="commercial-ops-panel">
+    <section className="commercial-metrics-grid">
+      <article><span>Total comercial</span><b>{metrics.total}</b><small>clientes e empresas acompanhados</small></article>
+      <article><span>Ativos</span><b>{metrics.active}</b><small>plano ou trial liberado</small></article>
+      <article><span>Pendentes</span><b>{metrics.pending}</b><small>pagamento, plano ou publicação</small></article>
+      <article><span>Suspensos/vencidos</span><b>{metrics.suspended}</b><small>risco de churn ou bloqueio</small></article>
+      <article><span>Agenda publicada</span><b>{metrics.published}</b><small>com página operacional</small></article>
+      <article><span>Sem uso recente</span><b>{metrics.noRecent}</b><small>prioridade de suporte</small></article>
+    </section>
+
+    <section className="dev-panel-card">
+      <div className="dev-card-title"><div><h3>Clientes e empresas</h3><span>{visible.length} de {rows.length} registros comerciais filtrados</span></div><div><button type="button" onClick={() => exportRows(visible)}>Resumo TXT</button><button type="button" onClick={() => copy(summary, 'Resumo comercial')}>Copiar resumo</button></div></div>
+      <div className="commercial-filter-pills">{filters.map(([value, label]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{label}</button>)}</div>
+      <div className="commercial-table">
+        {visible.map(row => <article key={row.id} className={`commercial-client-card ${row.risk}`}>
+          <button type="button" className="commercial-client-main" onClick={() => open(row)}>
+            <span><b>{row.name}</b><small>{row.owner} · {row.email || row.whatsapp || 'sem contato'}</small></span>
+            <em>{row.pending[0] || 'operação saudável'}</em>
+          </button>
+          <div className="commercial-client-grid">
+            <span><small>Plano</small><b>{row.plan}</b>{statusBadge(row.planStatus)}</span>
+            <span><small>Pagamento</small><b>{row.paymentStatus || '—'}</b>{statusBadge(row.paymentStatus)}</span>
+            <span><small>Agenda</small><b>{row.agendaStatus}</b>{statusBadge(row.agendaStatus)}</span>
+            <span><small>Uso</small><b>{row.appointmentsCount} agend.</b><em>{row.lastActivity ? formatDate(row.lastActivity) : 'sem atividade'}</em></span>
+            <span><small>Receita</small><b>{money(row.revenue)}</b><em>validada</em></span>
+          </div>
+          <div className="commercial-client-actions">
+            <button type="button" onClick={() => open(row)}>Inspector 360º</button>
+            {row.whatsapp && <button type="button" onClick={() => window.open(`https://wa.me/${String(row.whatsapp).replace(/\D/g, '')}`, '_blank')}>WhatsApp</button>}
+            {row.agenda?.public_slug || row.agenda?.slug || row.company?.public_slug || row.company?.slug ? <button type="button" onClick={() => copy(`${window.location.origin}/#/agendar/${row.agenda?.public_slug || row.agenda?.slug || row.company?.public_slug || row.company?.slug}`, 'Link público')}>Copiar agenda</button> : null}
+          </div>
+        </article>)}
+        {!visible.length && <div className="dev-empty-state"><Search/><b>Nenhum cliente neste filtro</b><span>Troque o filtro ou atualize os dados da Central Dev.</span></div>}
+      </div>
+    </section>
+
+    <section className="dev-grid-2">
+      <div className="dev-panel-card"><div className="dev-card-title"><h3>Alertas comerciais</h3><span>Prioridade prática de atendimento</span></div>
+        {pendingRows.length ? pendingRows.map(row => <button key={row.id} className={`dev-alert-row ${row.risk}`} onClick={() => open(row)}><strong>{row.name}</strong><span>{row.pending.slice(0, 2).join(' · ')}</span></button>) : <div className="dev-empty-mini">Sem pendências comerciais detectadas.</div>}
+      </div>
+      <div className="dev-panel-card"><div className="dev-card-title"><h3>Atalhos operacionais</h3><span>Rotas úteis para resolver gargalos</span></div>
+        <div className="commercial-shortcuts">
+          <button type="button" onClick={() => setActiveTab('manual')}>Pagamentos manuais</button>
+          <button type="button" onClick={() => setActiveTab('payments')}>Pagamentos automáticos</button>
+          <button type="button" onClick={() => setActiveTab('agendas')}>Agendas</button>
+          <button type="button" onClick={() => setActiveTab('support')}>Suporte 360º</button>
+        </div>
+      </div>
+    </section>
+  </div>;
+}
+
 function DevSupport360({ query, results, open, edit, copy }: { query: string; results: any[]; open: (item: any) => void; edit: (item: any) => void; copy: (text: string, label?: string) => void }) {
   const visible = query.trim() ? results.slice(0, 20) : results.slice(0, 8);
   return <div className="dev-panel-card"><div className="dev-card-title"><h3>Suporte 360º</h3><span>Busque qualquer cliente, empresa, agenda, pagamento ou slug e abra a visão completa.</span></div><div className="support-grid">{visible.map((item, index) => <article className="support-result-card" key={index}><button type="button" onClick={() => open(item)}><span>{item.type}</span><b>{item.title}</b><small>{item.subtitle || 'Sem detalhe'}</small></button><div><button type="button" onClick={() => edit(item)}>Editar</button>{item.raw?.whatsapp || item.raw?.phone || item.raw?.customer_phone ? <button type="button" onClick={() => window.open(`https://wa.me/${String(item.raw.whatsapp || item.raw.phone || item.raw.customer_phone).replace(/\D/g, '')}`, '_blank')}>WhatsApp</button> : null}{item.raw?.public_slug || item.raw?.slug || item.raw?.agenda_slug ? <button type="button" onClick={() => copy(`${window.location.origin}/#/agendar/${item.raw.public_slug || item.raw.slug || item.raw.agenda_slug}`, 'Link')}>Copiar link</button> : null}</div></article>)}{!visible.length && <div className="dev-empty-state"><Search/><b>Busque para iniciar atendimento</b><span>Digite nome, e-mail, WhatsApp, slug ou protocolo.</span></div>}</div></div>;
@@ -3612,11 +3874,12 @@ function DevToolsPanel({ copy }: { copy: (text: string, label?: string) => void 
 
 function DetailDrawer({ selected, close, copy, logs, openEdit }: { selected: any; close: () => void; copy: (v: string, l?: string) => void; logs: any[]; openEdit: (entity: string, item: any) => void }) {
   const item = selected.raw || selected.data || selected;
+  const commercial = selected.commercial as DevCommercialRow | undefined;
   const entity = normalizeCanonicalEntity(selected.entity || selected.type || item.entity_type || 'registro');
   const related = devRelatedLogs(selected, logs);
   const title = item.name || item.business_name || item.customer_name || item.full_name || item.email || item.id || 'Registro';
   const metadata = item.metadata || item.action_metadata || item.raw_payload || item.payload || null;
-  return <div className="detail-drawer-backdrop" onClick={close}><aside className="detail-drawer" onClick={event => event.stopPropagation()}><button className="drawer-close" onClick={close}>×</button><Badge tone="purple">{selected.type || 'Detalhes'}</Badge><h2>{title}</h2><p>Visão 360º com dados principais, timeline relacionada, metadata e ações rápidas para suporte.</p><div className="drawer-actions">{['client','company','agenda','manual_payment','license_key','webhook','briefing','implementation'].includes(entity) && <button onClick={() => openEdit(entity, item)}>Editar registro</button>}{item.email && <button onClick={() => copy(item.email, 'E-mail')}>Copiar e-mail</button>}{(item.whatsapp || item.phone || item.customer_phone) && <button onClick={() => window.open(`https://wa.me/${String(item.whatsapp || item.phone || item.customer_phone).replace(/\D/g, '')}`, '_blank')}>WhatsApp</button>}{(item.public_slug || item.slug || item.agenda_slug) && <button onClick={() => copy(`${window.location.origin}/#/agendar/${item.public_slug || item.slug || item.agenda_slug}`, 'Link')}>Copiar agendamento</button>}<button onClick={() => copy(JSON.stringify(item, null, 2), 'Metadata')}>Copiar JSON</button></div><div className="detail-kpi-grid"><span><b>Status</b><small>{item.status || item.subscription_status || item.payment_status || item.severity || '—'}</small></span><span><b>Plano</b><small>{item.plan || item.plan_id || item.current_plan_id || '—'}</small></span><span><b>Criado</b><small>{formatDate(item.created_at)}</small></span><span><b>Atualizado</b><small>{formatDate(item.updated_at || item.reviewed_at)}</small></span></div>{related.length > 0 && <section className="drawer-timeline"><h3>Timeline relacionada</h3>{related.map((log: any, index: number) => <article key={log.id || index}><i className={`dot ${String(log.severity || 'info').toLowerCase()}`} /><div><b>{log.title || log.action || 'Evento'}</b><span>{log.description || log.entity_type || 'Sem descrição'}</span><small>{formatDate(log.created_at)} · {log.actor_email || log.origin || log.source || 'sistema'}</small></div></article>)}</section>}{metadata && <section className="drawer-metadata"><h3>Metadata relevante</h3><pre>{JSON.stringify(metadata, null, 2)}</pre></section>}<section className="drawer-metadata"><h3>Registro completo</h3><pre>{JSON.stringify(item, null, 2)}</pre></section></aside></div>;
+  return <div className="detail-drawer-backdrop" onClick={close}><aside className="detail-drawer" onClick={event => event.stopPropagation()}><button className="drawer-close" onClick={close}>×</button><Badge tone="purple">{selected.type || 'Detalhes'}</Badge><h2>{title}</h2><p>Visão 360º com dados principais, timeline relacionada, metadata e ações rápidas para suporte.</p><div className="drawer-actions">{['client','company','agenda','payment','manual_payment','license_key','webhook','briefing','implementation'].includes(entity) && <button onClick={() => openEdit(entity, item)}>Editar registro</button>}{item.email && <button onClick={() => copy(item.email, 'E-mail')}>Copiar e-mail</button>}{(item.whatsapp || item.phone || item.customer_phone) && <button onClick={() => window.open(`https://wa.me/${String(item.whatsapp || item.phone || item.customer_phone).replace(/\D/g, '')}`, '_blank')}>WhatsApp</button>}{(item.public_slug || item.slug || item.agenda_slug) && <button onClick={() => copy(`${window.location.origin}/#/agendar/${item.public_slug || item.slug || item.agenda_slug}`, 'Link')}>Copiar agendamento</button>}<button onClick={() => copy(JSON.stringify(commercial || item, null, 2), 'Metadata')}>Copiar JSON</button></div><div className="detail-kpi-grid"><span><b>Status</b><small>{item.status || item.subscription_status || item.payment_status || item.severity || '—'}</small></span><span><b>Plano</b><small>{item.plan || item.plan_id || item.current_plan_id || commercial?.plan || '—'}</small></span><span><b>Criado</b><small>{formatDate(item.created_at || commercial?.createdAt)}</small></span><span><b>Atualizado</b><small>{formatDate(item.updated_at || item.reviewed_at || commercial?.lastActivity)}</small></span></div>{commercial && <section className="drawer-commercial-360"><h3>Operação comercial</h3><div className="detail-kpi-grid"><span><b>Plano</b><small>{commercial.plan} · {commercial.planStatus}</small></span><span><b>Pagamento</b><small>{commercial.paymentStatus}</small></span><span><b>Agenda</b><small>{commercial.agendaStatus}</small></span><span><b>Agendamentos</b><small>{commercial.appointmentsCount}</small></span></div><div className="commercial-pendency-list">{commercial.pending.length ? commercial.pending.map(item => <span key={item}>{item}</span>) : <span>sem pendências comerciais</span>}</div><div className="drawer-actions">{commercial.agenda?.public_slug || commercial.agenda?.slug || commercial.company?.public_slug || commercial.company?.slug ? <button onClick={() => copy(`${window.location.origin}/#/agendar/${commercial.agenda?.public_slug || commercial.agenda?.slug || commercial.company?.public_slug || commercial.company?.slug}`, 'Link público')}>Copiar link público</button> : null}{commercial.whatsapp && <button onClick={() => window.open(`https://wa.me/${String(commercial.whatsapp).replace(/\D/g, '')}`, '_blank')}>Abrir WhatsApp</button>}</div></section>}{related.length > 0 && <section className="drawer-timeline"><h3>Timeline relacionada</h3>{related.map((log: any, index: number) => <article key={log.id || index}><i className={`dot ${String(log.severity || 'info').toLowerCase()}`} /><div><b>{log.title || log.action || 'Evento'}</b><span>{log.description || log.entity_type || 'Sem descrição'}</span><small>{formatDate(log.created_at)} · {log.actor_email || log.origin || log.source || 'sistema'}</small></div></article>)}</section>}{metadata && <section className="drawer-metadata"><h3>Metadata relevante</h3><pre>{JSON.stringify(metadata, null, 2)}</pre></section>}<section className="drawer-metadata"><h3>Registro completo</h3><pre>{JSON.stringify(commercial || item, null, 2)}</pre></section></aside></div>;
 }
 
 function DevInspectorPanel({ rows, metrics, close, exportSummary }: { rows: any; metrics: any; close: () => void; exportSummary: (entity: string, data: any[]) => void }) {
